@@ -17,8 +17,8 @@ dev = ["pytest>=7", "ruff>=0.4", "responses>=0.25"]
 [project.scripts]
 autograde = "autograde_idp.cli:main"
 
-[tool.setuptools]
-packages = ["autograde_idp"]
+[tool.setuptools.packages.find]
+include = ["autograde_idp*"]
 
 [tool.ruff]
 line-length = 100
