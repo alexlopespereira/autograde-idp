@@ -17,7 +17,6 @@ from autograde_idp.auth import (
     TokenBundle,
     TokenExpiredError,
     ensure_fresh_token,
-    load_oauth_credentials,
     load_token,
 )
 
@@ -67,8 +66,7 @@ def _load_fresh_bundle() -> TokenBundle:
     bundle = load_token()
     if bundle is None:
         raise NotasError("Sem sessão ativa. Rode `autograde login`.")
-    _client_id, client_secret = load_oauth_credentials()
-    return ensure_fresh_token(bundle, client_secret)
+    return ensure_fresh_token(bundle, api_url())
 
 
 def _format_iso_local(ts: str) -> str:

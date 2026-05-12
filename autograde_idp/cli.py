@@ -22,7 +22,7 @@ from autograde_idp.auth import (
     TokenExpiredError,
     device_login,
     ensure_fresh_token,
-    load_oauth_credentials,
+    load_client_id,
     load_token,
     save_token,
     token_age_days,
@@ -54,13 +54,9 @@ def cmd_version(_args: argparse.Namespace) -> int:
 
 
 def cmd_login(_args: argparse.Namespace) -> int:
+    client_id = load_client_id()
     try:
-        client_id, client_secret = load_oauth_credentials()
-    except AuthError as exc:
-        print(f"erro: {exc}", file=sys.stderr)
-        return 2
-    try:
-        bundle = device_login(client_id, client_secret, on_user_code=_print_user_code)
+        bundle = device_login(client_id, api_url(), on_user_code=_print_user_code)
     except AuthError as exc:
         print(f"erro de login: {exc}", file=sys.stderr)
         return 2
@@ -79,12 +75,7 @@ def cmd_whoami(_args: argparse.Namespace) -> int:
         print("Sem sessão ativa. Rode `autograde login`.", file=sys.stderr)
         return 2
     try:
-        _, client_secret = load_oauth_credentials()
-    except AuthError as exc:
-        print(f"erro: {exc}", file=sys.stderr)
-        return 2
-    try:
-        bundle = ensure_fresh_token(bundle, client_secret)
+        bundle = ensure_fresh_token(bundle, api_url())
     except TokenAgeExceededError as exc:
         print(str(exc), file=sys.stderr)
         return 2

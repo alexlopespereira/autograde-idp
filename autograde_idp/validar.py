@@ -26,7 +26,6 @@ from autograde_idp.auth import (
     TokenExpiredError,
     config_dir,
     ensure_fresh_token,
-    load_oauth_credentials,
     load_token,
 )
 from autograde_idp.evidence.shell import collect_for_exercise
@@ -254,8 +253,7 @@ def _load_fresh_bundle() -> TokenBundle:
     bundle = load_token()
     if bundle is None:
         raise ValidarError("Sem sessão ativa. Rode `autograde login`.")
-    _client_id, client_secret = load_oauth_credentials()
-    return ensure_fresh_token(bundle, client_secret)
+    return ensure_fresh_token(bundle, api_url())
 
 
 def run_validar(

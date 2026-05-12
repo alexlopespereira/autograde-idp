@@ -1,8 +1,10 @@
 """OAuth 2.0 Device Authorization Grant (RFC 8628) for Google.
 
-Implementação direta via requests (sem google-auth-oauthlib) para manter
-o CLI leve. Persiste refresh token em ~/.git-exercicios/token.json com
-permissões restritas e força re-login se a sessão passar de 150 dias (R5).
+A CLI fala com Google só no `/device/code` (apenas client_id é necessário ali).
+O `/token` (exchange + refresh) passa pelo backend autograde
+(`POST {api}/oauth/exchange`, `POST {api}/oauth/refresh`) que segura o
+`client_secret` server-side no Secret Manager — assim a CLI nunca toca no
+secret e o aluno não precisa configurar nada.
 """
 from __future__ import annotations
 
@@ -18,16 +20,18 @@ from typing import Any, Callable, Optional
 import requests
 
 DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
-TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - public endpoint
 SCOPE = "openid email profile"
 REFRESH_LEEWAY_SECONDS = 60
 TOKEN_AGE_LIMIT_DAYS = 150
 CONFIG_DIR_NAME = ".git-exercicios"
 TOKEN_FILENAME = "token.json"
+DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
 # client_id OAuth do projeto de produção TD-2026. É público por design (aparece
 # na URL do consent screen do aluno). Override via env var GOOGLE_OAUTH_CLIENT_ID
-# para apontar a CLI a outro projeto Google em dev/staging.
+# para apontar a CLI a outro projeto Google em dev/staging — nesse caso o backend
+# também precisa estar configurado pro mesmo client_id (ele guarda o
+# client_secret correspondente).
 DEFAULT_GOOGLE_OAUTH_CLIENT_ID = (
     "1065810445001-p1s240g9uvd5c54g9u33ekb4pp75dl8g.apps.googleusercontent.com"
 )
@@ -98,16 +102,15 @@ def _read_env_local(env_file: Path) -> dict[str, str]:
     return data
 
 
-def load_oauth_credentials(env_file: Optional[Path] = None) -> tuple[str, str]:
-    """Resolve client_id e client_secret a partir de env vars ou .env.local.
+def load_client_id(env_file: Optional[Path] = None) -> str:
+    """Resolve client_id. Precedência: env var > .env.local > default embutido.
 
-    Prioridade: env vars > env_file fornecido > autograde/.env.local relativo
-    ao package (apenas em dev).
+    Não é mais necessário client_secret — a CLI delega o token exchange ao
+    backend, que mantém o secret server-side.
     """
     client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-    if client_id and client_secret:
-        return client_id, client_secret
+    if client_id:
+        return client_id
 
     candidates: list[Path] = []
     if env_file is not None:
@@ -118,17 +121,10 @@ def load_oauth_credentials(env_file: Optional[Path] = None) -> tuple[str, str]:
 
     for candidate in candidates:
         env = _read_env_local(candidate)
-        client_id = client_id or env.get("GOOGLE_OAUTH_CLIENT_ID")
-        client_secret = client_secret or env.get("GOOGLE_OAUTH_CLIENT_SECRET")
-        if client_id and client_secret:
-            return client_id, client_secret
+        if env.get("GOOGLE_OAUTH_CLIENT_ID"):
+            return env["GOOGLE_OAUTH_CLIENT_ID"]
 
-    client_id = client_id or DEFAULT_GOOGLE_OAUTH_CLIENT_ID
-    if not client_secret:
-        raise AuthError(
-            "GOOGLE_OAUTH_CLIENT_SECRET não configurado (env var ou .env.local)"
-        )
-    return client_id, client_secret
+    return DEFAULT_GOOGLE_OAUTH_CLIENT_ID
 
 
 def save_token(bundle: TokenBundle, path: Optional[Path] = None) -> Path:
@@ -162,9 +158,13 @@ def _now() -> float:
     return time.time()
 
 
+def _backend_url(api_base_url: str, suffix: str) -> str:
+    return f"{api_base_url.rstrip('/')}{suffix}"
+
+
 def device_login(
     client_id: str,
-    client_secret: str,
+    api_base_url: str,
     *,
     scope: str = SCOPE,
     poll_sleep: Callable[[float], None] = time.sleep,
@@ -173,8 +173,10 @@ def device_login(
 ) -> TokenBundle:
     """Executa o Device Authorization Grant completo.
 
-    Polling respeita `interval` retornado pelo /device/code; trata
-    authorization_pending e slow_down conforme RFC 8628 §3.5.
+    /device/code é chamado direto no Google (só client_id necessário).
+    /token (exchange) passa pelo backend ({api_base_url}/oauth/exchange) que
+    segura o client_secret server-side. Polling respeita `interval` do Google
+    e trata authorization_pending/slow_down conforme RFC 8628 §3.5.
     """
     resp = requests.post(
         DEVICE_CODE_URL,
@@ -196,16 +198,12 @@ def device_login(
         code = device.get("user_code")
         print(f"Acesse {url} e digite o código: {code}")
 
+    exchange_url = _backend_url(api_base_url, "/oauth/exchange")
     while now() < deadline:
         poll_sleep(interval)
         token_resp = requests.post(
-            TOKEN_URL,
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "device_code": device_code,
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-            },
+            exchange_url,
+            json={"client_id": client_id, "device_code": device_code},
             timeout=15,
         )
         body = token_resp.json() if token_resp.content else {}
@@ -221,7 +219,7 @@ def device_login(
             raise AuthError("Login negado pelo usuário")
         if error == "expired_token":
             raise AuthError("Código expirou antes da confirmação. Tente novamente.")
-        raise AuthError(f"token endpoint falhou: {token_resp.status_code} {body}")
+        raise AuthError(f"oauth/exchange falhou: {token_resp.status_code} {body}")
 
     raise AuthError("Tempo esgotado aguardando confirmação no navegador")
 
@@ -239,24 +237,19 @@ def _build_bundle_from_token_response(
             client_id=client_id,
         )
     except KeyError as exc:
-        raise AuthError(f"resposta do token endpoint sem campo {exc}") from exc
+        raise AuthError(f"resposta do oauth/exchange sem campo {exc}") from exc
 
 
 def refresh_access_token(
     bundle: TokenBundle,
-    client_secret: str,
+    api_base_url: str,
     *,
     now: Callable[[], float] = _now,
 ) -> TokenBundle:
-    """POST /token grant_type=refresh_token. Preserva first_login_at."""
+    """POST {api_base_url}/oauth/refresh. Preserva first_login_at."""
     resp = requests.post(
-        TOKEN_URL,
-        data={
-            "client_id": bundle.client_id,
-            "client_secret": client_secret,
-            "refresh_token": bundle.refresh_token,
-            "grant_type": "refresh_token",
-        },
+        _backend_url(api_base_url, "/oauth/refresh"),
+        json={"client_id": bundle.client_id, "refresh_token": bundle.refresh_token},
         timeout=15,
     )
     body = resp.json() if resp.content else {}
@@ -277,7 +270,7 @@ def refresh_access_token(
 
 def ensure_fresh_token(
     bundle: TokenBundle,
-    client_secret: str,
+    api_base_url: str,
     *,
     now: Callable[[], float] = _now,
     persist: bool = True,
@@ -286,7 +279,7 @@ def ensure_fresh_token(
     """Garante access_token válido + valida idade da sessão (R5).
 
     Levanta TokenAgeExceededError se first_login_at < now - 150 dias.
-    Renova access_token se faltar menos de REFRESH_LEEWAY_SECONDS pra expirar.
+    Renova access_token via backend se faltar menos de REFRESH_LEEWAY_SECONDS.
     """
     age_seconds = now() - bundle.first_login_at
     if age_seconds > TOKEN_AGE_LIMIT_DAYS * 86400:
@@ -296,7 +289,7 @@ def ensure_fresh_token(
         )
     if bundle.expires_at >= now() + REFRESH_LEEWAY_SECONDS:
         return bundle
-    refreshed = refresh_access_token(bundle, client_secret, now=now)
+    refreshed = refresh_access_token(bundle, api_base_url, now=now)
     if persist:
         save_token(refreshed, path=path)
     return refreshed

@@ -13,3 +13,4 @@ venv/
 htmlcov/
 build/
 dist/
+.playwright-mcp/

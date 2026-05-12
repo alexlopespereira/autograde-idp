@@ -52,7 +52,6 @@ def fake_token(monkeypatch: pytest.MonkeyPatch) -> TokenBundle:
         client_id="cid",
     )
     monkeypatch.setattr(validar, "load_token", lambda: bundle)
-    monkeypatch.setattr(validar, "load_oauth_credentials", lambda: ("cid", "secret"))
     monkeypatch.setattr(validar, "ensure_fresh_token", lambda b, *_a, **_k: b)
     return bundle
 
