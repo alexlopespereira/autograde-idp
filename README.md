@@ -31,6 +31,12 @@ pip install -e .
 
 Isso registra o entry-point `autograde` no PATH.
 
+O `client_id` OAuth do projeto TD-2026 já vem embutido no código — você não
+precisa configurar nada para `autograde login`. Para apontar a CLI a outro
+projeto Google (ex.: desenvolvimento contra staging), exporte
+`GOOGLE_OAUTH_CLIENT_ID` antes do `autograde login` e o valor sobrescreve o
+default.
+
 ### 3. GitHub CLI (`gh`)
 
 A partir do **Exercício 1.2** o autograder coleta evidência local de
