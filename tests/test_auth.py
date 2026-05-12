@@ -10,6 +10,7 @@ import pytest
 import responses
 
 from autograde_idp.auth import (
+    DEFAULT_GOOGLE_OAUTH_CLIENT_ID,
     DEVICE_CODE_URL,
     REFRESH_LEEWAY_SECONDS,
     TOKEN_AGE_LIMIT_DAYS,
@@ -279,8 +280,45 @@ def test_load_oauth_credentials_falls_back_to_env_file(monkeypatch, tmp_path):
     assert (cid, sec) == ("file-id", "file-sec")
 
 
-def test_load_oauth_credentials_raises_when_missing(monkeypatch, tmp_path):
+def test_load_oauth_credentials_uses_embedded_default_when_no_env_and_no_file(
+    monkeypatch, tmp_path
+):
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "env-secret")
+    cid, sec = load_oauth_credentials(env_file=tmp_path / "missing")
+    assert cid == DEFAULT_GOOGLE_OAUTH_CLIENT_ID
+    assert sec == "env-secret"
+
+
+def test_load_oauth_credentials_env_var_overrides_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "env-override-id")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "env-secret")
+    cid, _ = load_oauth_credentials(env_file=tmp_path / "missing")
+    assert cid == "env-override-id"
+    assert cid != DEFAULT_GOOGLE_OAUTH_CLIENT_ID
+
+
+def test_load_oauth_credentials_env_file_overrides_default_but_loses_to_env_var(
+    monkeypatch, tmp_path
+):
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
-    with pytest.raises(AuthError):
+    env_file = tmp_path / ".env.local"
+    env_file.write_text(
+        "GOOGLE_OAUTH_CLIENT_ID=file-id\nGOOGLE_OAUTH_CLIENT_SECRET=file-sec\n",
+        encoding="utf-8",
+    )
+    # file beats default
+    cid, _ = load_oauth_credentials(env_file=env_file)
+    assert cid == "file-id"
+    # but env var beats file
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "env-wins")
+    cid, _ = load_oauth_credentials(env_file=env_file)
+    assert cid == "env-wins"
+
+
+def test_load_oauth_credentials_raises_when_secret_missing(monkeypatch, tmp_path):
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    with pytest.raises(AuthError, match="CLIENT_SECRET"):
         load_oauth_credentials(env_file=tmp_path / "missing")

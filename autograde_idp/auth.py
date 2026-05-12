@@ -25,6 +25,13 @@ TOKEN_AGE_LIMIT_DAYS = 150
 CONFIG_DIR_NAME = ".git-exercicios"
 TOKEN_FILENAME = "token.json"
 
+# client_id OAuth do projeto de produção TD-2026. É público por design (aparece
+# na URL do consent screen do aluno). Override via env var GOOGLE_OAUTH_CLIENT_ID
+# para apontar a CLI a outro projeto Google em dev/staging.
+DEFAULT_GOOGLE_OAUTH_CLIENT_ID = (
+    "1065810445001-p1s240g9uvd5c54g9u33ekb4pp75dl8g.apps.googleusercontent.com"
+)
+
 
 class AuthError(Exception):
     """Erro de autenticação OAuth."""
@@ -116,10 +123,11 @@ def load_oauth_credentials(env_file: Optional[Path] = None) -> tuple[str, str]:
         if client_id and client_secret:
             return client_id, client_secret
 
-    if not client_id:
-        raise AuthError("GOOGLE_OAUTH_CLIENT_ID não configurado (env var ou .env.local)")
+    client_id = client_id or DEFAULT_GOOGLE_OAUTH_CLIENT_ID
     if not client_secret:
-        raise AuthError("GOOGLE_OAUTH_CLIENT_SECRET não configurado (env var ou .env.local)")
+        raise AuthError(
+            "GOOGLE_OAUTH_CLIENT_SECRET não configurado (env var ou .env.local)"
+        )
     return client_id, client_secret
 
 
