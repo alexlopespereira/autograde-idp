@@ -29,7 +29,6 @@ def fake_bundle() -> TokenBundle:
 @pytest.fixture
 def with_fresh_token(monkeypatch: pytest.MonkeyPatch, fake_bundle: TokenBundle):
     monkeypatch.setattr(notas, "load_token", lambda: fake_bundle)
-    monkeypatch.setattr(notas, "load_oauth_credentials", lambda: ("cid", "secret"))
     monkeypatch.setattr(notas, "ensure_fresh_token", lambda b, *_a, **_k: b)
     return fake_bundle
 
@@ -134,7 +133,6 @@ def test_run_notas_token_expired_returns_2(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(notas, "load_token", lambda: fake_bundle)
-    monkeypatch.setattr(notas, "load_oauth_credentials", lambda: ("cid", "secret"))
 
     def fake_refresh(_b, *_a, **_k):
         raise TokenExpiredError("refresh token inválido/expirado: invalid_grant")
@@ -167,7 +165,6 @@ def test_run_notas_refreshes_token_then_succeeds(
         client_id=fake_bundle.client_id,
     )
     monkeypatch.setattr(notas, "load_token", lambda: fake_bundle)
-    monkeypatch.setattr(notas, "load_oauth_credentials", lambda: ("cid", "secret"))
     monkeypatch.setattr(notas, "ensure_fresh_token", lambda b, *_a, **_k: refreshed)
 
     seen: dict = {}
@@ -279,7 +276,6 @@ def cli_with_fresh_token(monkeypatch: pytest.MonkeyPatch, fake_bundle: TokenBund
     from autograde_idp import cli
 
     monkeypatch.setattr(cli, "load_token", lambda: fake_bundle)
-    monkeypatch.setattr(cli, "load_oauth_credentials", lambda: ("cid", "secret"))
     monkeypatch.setattr(cli, "ensure_fresh_token", lambda b, *_a, **_k: b)
     monkeypatch.setattr(cli, "token_age_days", lambda _b: 7)
     return fake_bundle

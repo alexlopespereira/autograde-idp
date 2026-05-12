@@ -1,4 +1,8 @@
-"""Testes do módulo autograde_idp.auth (Device Flow + refresh + age check)."""
+"""Testes do módulo autograde_idp.auth (Device Flow + refresh + age check).
+
+Após o refactor pra backend proxy, /token NÃO é mais chamado direto no Google —
+o CLI fala com {api_base_url}/oauth/exchange e /oauth/refresh.
+"""
 from __future__ import annotations
 
 import json
@@ -14,7 +18,6 @@ from autograde_idp.auth import (
     DEVICE_CODE_URL,
     REFRESH_LEEWAY_SECONDS,
     TOKEN_AGE_LIMIT_DAYS,
-    TOKEN_URL,
     AuthError,
     TokenAgeExceededError,
     TokenBundle,
@@ -22,14 +25,16 @@ from autograde_idp.auth import (
     decode_id_token_unverified,
     device_login,
     ensure_fresh_token,
-    load_oauth_credentials,
+    load_client_id,
     load_token,
     refresh_access_token,
     save_token,
 )
 
 CLIENT_ID = "test-client-id.apps.googleusercontent.com"
-CLIENT_SECRET = "test-secret"  # noqa: S105 - fixture
+API_BASE = "https://api.test"
+EXCHANGE_URL = f"{API_BASE}/oauth/exchange"
+REFRESH_URL = f"{API_BASE}/oauth/refresh"
 
 
 def _make_bundle(**overrides) -> TokenBundle:
@@ -61,7 +66,7 @@ def test_device_login_happy_path():
     )
     responses.add(
         responses.POST,
-        TOKEN_URL,
+        EXCHANGE_URL,
         json={
             "access_token": "at-real",
             "refresh_token": "rt-real",
@@ -74,7 +79,7 @@ def test_device_login_happy_path():
     clock = [1_000_000.0]
     bundle = device_login(
         CLIENT_ID,
-        CLIENT_SECRET,
+        API_BASE,
         poll_sleep=lambda _s: None,
         now=lambda: clock[0],
     )
@@ -83,6 +88,49 @@ def test_device_login_happy_path():
     assert bundle.client_id == CLIENT_ID
     assert bundle.expires_at == pytest.approx(1_000_000.0 + 3600)
     assert bundle.first_login_at == pytest.approx(1_000_000.0)
+
+
+@responses.activate
+def test_device_login_sends_json_body_to_backend_without_client_secret():
+    """CLI must NOT send client_secret to backend (and never to Google)."""
+    captured: dict = {}
+
+    def _callback(request):
+        captured["body"] = request.body
+        captured["content_type"] = request.headers.get("Content-Type", "")
+        return (
+            200,
+            {},
+            json.dumps(
+                {
+                    "access_token": "at",
+                    "refresh_token": "rt",
+                    "id_token": "h.e.s",
+                    "expires_in": 3600,
+                }
+            ),
+        )
+
+    responses.add(
+        responses.POST,
+        DEVICE_CODE_URL,
+        json={
+            "device_code": "dc-xyz",
+            "user_code": "X",
+            "verification_url": "u",
+            "expires_in": 60,
+            "interval": 0,
+        },
+        status=200,
+    )
+    responses.add_callback(responses.POST, EXCHANGE_URL, callback=_callback)
+
+    device_login(CLIENT_ID, API_BASE, poll_sleep=lambda _s: None, now=lambda: 0.0)
+
+    assert "application/json" in captured["content_type"]
+    payload = json.loads(captured["body"])
+    assert payload == {"client_id": CLIENT_ID, "device_code": "dc-xyz"}
+    assert "client_secret" not in payload
 
 
 @responses.activate
@@ -99,11 +147,15 @@ def test_device_login_polling_authorization_pending():
         },
         status=200,
     )
-    responses.add(responses.POST, TOKEN_URL, json={"error": "authorization_pending"}, status=428)
-    responses.add(responses.POST, TOKEN_URL, json={"error": "slow_down"}, status=428)
+    responses.add(
+        responses.POST, EXCHANGE_URL, json={"error": "authorization_pending"}, status=428
+    )
+    responses.add(
+        responses.POST, EXCHANGE_URL, json={"error": "slow_down"}, status=428
+    )
     responses.add(
         responses.POST,
-        TOKEN_URL,
+        EXCHANGE_URL,
         json={
             "access_token": "at-final",
             "refresh_token": "rt-final",
@@ -116,7 +168,7 @@ def test_device_login_polling_authorization_pending():
     captured: list[dict] = []
     bundle = device_login(
         CLIENT_ID,
-        CLIENT_SECRET,
+        API_BASE,
         poll_sleep=lambda _s: None,
         now=lambda: 0.0,
         on_user_code=captured.append,
@@ -139,16 +191,51 @@ def test_device_login_access_denied_raises():
         },
         status=200,
     )
-    responses.add(responses.POST, TOKEN_URL, json={"error": "access_denied"}, status=400)
+    responses.add(responses.POST, EXCHANGE_URL, json={"error": "access_denied"}, status=400)
     with pytest.raises(AuthError, match="negado"):
-        device_login(CLIENT_ID, CLIENT_SECRET, poll_sleep=lambda _s: None, now=lambda: 0.0)
+        device_login(CLIENT_ID, API_BASE, poll_sleep=lambda _s: None, now=lambda: 0.0)
+
+
+@responses.activate
+def test_device_login_trims_trailing_slash_on_api_base_url():
+    responses.add(
+        responses.POST,
+        DEVICE_CODE_URL,
+        json={
+            "device_code": "dc",
+            "user_code": "X",
+            "verification_url": "u",
+            "expires_in": 60,
+            "interval": 0,
+        },
+        status=200,
+    )
+    responses.add(
+        responses.POST,
+        EXCHANGE_URL,
+        json={
+            "access_token": "at",
+            "refresh_token": "rt",
+            "id_token": "h.e.s",
+            "expires_in": 3600,
+        },
+        status=200,
+    )
+
+    bundle = device_login(
+        CLIENT_ID,
+        API_BASE + "/",  # trailing slash should be tolerated
+        poll_sleep=lambda _s: None,
+        now=lambda: 0.0,
+    )
+    assert bundle.access_token == "at"
 
 
 @responses.activate
 def test_refresh_access_token_happy_path():
     responses.add(
         responses.POST,
-        TOKEN_URL,
+        REFRESH_URL,
         json={
             "access_token": "at-new",
             "id_token": "h.eyJlbWFpbCI6ImFAYi5jb20ifQ.s",
@@ -157,7 +244,7 @@ def test_refresh_access_token_happy_path():
         status=200,
     )
     bundle = _make_bundle(expires_at=0.0)
-    refreshed = refresh_access_token(bundle, CLIENT_SECRET, now=lambda: 2000.0)
+    refreshed = refresh_access_token(bundle, API_BASE, now=lambda: 2000.0)
     assert refreshed.access_token == "at-new"
     assert refreshed.refresh_token == "rt-1"  # preservado se omitido na resposta
     assert refreshed.first_login_at == pytest.approx(500.0)
@@ -165,17 +252,41 @@ def test_refresh_access_token_happy_path():
 
 
 @responses.activate
+def test_refresh_sends_json_body_to_backend_without_client_secret():
+    captured: dict = {}
+
+    def _callback(request):
+        captured["body"] = request.body
+        return (
+            200,
+            {},
+            json.dumps(
+                {"access_token": "at-new", "expires_in": 3600, "id_token": "h.e.s"}
+            ),
+        )
+
+    responses.add_callback(responses.POST, REFRESH_URL, callback=_callback)
+
+    bundle = _make_bundle(expires_at=0.0)
+    refresh_access_token(bundle, API_BASE, now=lambda: 0.0)
+
+    payload = json.loads(captured["body"])
+    assert payload == {"client_id": CLIENT_ID, "refresh_token": "rt-1"}
+    assert "client_secret" not in payload
+
+
+@responses.activate
 def test_refresh_invalid_grant_raises_token_expired():
-    responses.add(responses.POST, TOKEN_URL, json={"error": "invalid_grant"}, status=400)
+    responses.add(responses.POST, REFRESH_URL, json={"error": "invalid_grant"}, status=400)
     with pytest.raises(TokenExpiredError):
-        refresh_access_token(_make_bundle(), CLIENT_SECRET, now=lambda: 0.0)
+        refresh_access_token(_make_bundle(), API_BASE, now=lambda: 0.0)
 
 
 def test_ensure_fresh_token_returns_unchanged_if_valid():
     bundle = _make_bundle(expires_at=10_000.0, first_login_at=9_000.0)
     out = ensure_fresh_token(
         bundle,
-        CLIENT_SECRET,
+        API_BASE,
         now=lambda: 9_500.0,
         persist=False,
     )
@@ -186,7 +297,7 @@ def test_ensure_fresh_token_returns_unchanged_if_valid():
 def test_ensure_fresh_token_refreshes_when_near_expiry(tmp_path):
     responses.add(
         responses.POST,
-        TOKEN_URL,
+        REFRESH_URL,
         json={"access_token": "at-refreshed", "expires_in": 3600, "id_token": "h.e.s"},
         status=200,
     )
@@ -195,7 +306,7 @@ def test_ensure_fresh_token_refreshes_when_near_expiry(tmp_path):
     target = tmp_path / "token.json"
     refreshed = ensure_fresh_token(
         bundle,
-        CLIENT_SECRET,
+        API_BASE,
         now=lambda: now_value,
         persist=True,
         path=target,
@@ -210,7 +321,7 @@ def test_ensure_fresh_token_raises_when_age_exceeded():
     bundle = _make_bundle(expires_at=10_000.0, first_login_at=0.0)
     future = (TOKEN_AGE_LIMIT_DAYS + 1) * 86400
     with pytest.raises(TokenAgeExceededError, match="5 meses"):
-        ensure_fresh_token(bundle, CLIENT_SECRET, now=lambda: future, persist=False)
+        ensure_fresh_token(bundle, API_BASE, now=lambda: future, persist=False)
 
 
 def test_save_and_load_token_roundtrip(tmp_path):
@@ -261,64 +372,30 @@ def test_decode_id_token_unverified_rejects_malformed():
         decode_id_token_unverified("not-a-jwt")
 
 
-def test_load_oauth_credentials_prefers_env_vars(monkeypatch):
+def test_load_client_id_prefers_env_var(monkeypatch):
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "env-id")
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "env-secret")
-    cid, sec = load_oauth_credentials(env_file=Path("/nonexistent"))
-    assert (cid, sec) == ("env-id", "env-secret")
+    assert load_client_id(env_file=Path("/nonexistent")) == "env-id"
 
 
-def test_load_oauth_credentials_falls_back_to_env_file(monkeypatch, tmp_path):
+def test_load_client_id_falls_back_to_env_file(monkeypatch, tmp_path):
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
     env_file = tmp_path / ".env.local"
     env_file.write_text(
-        "# comment\nGOOGLE_OAUTH_CLIENT_ID=file-id\nGOOGLE_OAUTH_CLIENT_SECRET=file-sec\n",
+        "# comment\nGOOGLE_OAUTH_CLIENT_ID=file-id\n",
         encoding="utf-8",
     )
-    cid, sec = load_oauth_credentials(env_file=env_file)
-    assert (cid, sec) == ("file-id", "file-sec")
+    assert load_client_id(env_file=env_file) == "file-id"
 
 
-def test_load_oauth_credentials_uses_embedded_default_when_no_env_and_no_file(
+def test_load_client_id_uses_embedded_default_when_no_env_and_no_file(
     monkeypatch, tmp_path
 ):
     monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "env-secret")
-    cid, sec = load_oauth_credentials(env_file=tmp_path / "missing")
-    assert cid == DEFAULT_GOOGLE_OAUTH_CLIENT_ID
-    assert sec == "env-secret"
+    assert load_client_id(env_file=tmp_path / "missing") == DEFAULT_GOOGLE_OAUTH_CLIENT_ID
 
 
-def test_load_oauth_credentials_env_var_overrides_default(monkeypatch, tmp_path):
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "env-override-id")
-    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "env-secret")
-    cid, _ = load_oauth_credentials(env_file=tmp_path / "missing")
-    assert cid == "env-override-id"
-    assert cid != DEFAULT_GOOGLE_OAUTH_CLIENT_ID
-
-
-def test_load_oauth_credentials_env_file_overrides_default_but_loses_to_env_var(
-    monkeypatch, tmp_path
-):
-    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
-    env_file = tmp_path / ".env.local"
-    env_file.write_text(
-        "GOOGLE_OAUTH_CLIENT_ID=file-id\nGOOGLE_OAUTH_CLIENT_SECRET=file-sec\n",
-        encoding="utf-8",
-    )
-    # file beats default
-    cid, _ = load_oauth_credentials(env_file=env_file)
-    assert cid == "file-id"
-    # but env var beats file
+def test_load_client_id_env_var_overrides_file(monkeypatch, tmp_path):
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "env-wins")
-    cid, _ = load_oauth_credentials(env_file=env_file)
-    assert cid == "env-wins"
-
-
-def test_load_oauth_credentials_raises_when_secret_missing(monkeypatch, tmp_path):
-    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
-    with pytest.raises(AuthError, match="CLIENT_SECRET"):
-        load_oauth_credentials(env_file=tmp_path / "missing")
+    env_file = tmp_path / ".env.local"
+    env_file.write_text("GOOGLE_OAUTH_CLIENT_ID=file-loses\n", encoding="utf-8")
+    assert load_client_id(env_file=env_file) == "env-wins"
