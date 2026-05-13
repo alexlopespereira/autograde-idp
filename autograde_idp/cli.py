@@ -7,23 +7,27 @@ Subcomandos:
 - autograde validar [exercicio_id] [--auto-submit]
 - autograde notas
 """
+
 from __future__ import annotations
 
+# ruff: noqa: E402
+# Suprime NotOpenSSLWarning do urllib3 — macOS system Python usa LibreSSL e
+# emite warning toda vez que urllib3 importa. Mensagem é informativa
+# (compatibilidade de biblioteca), não actionable pro aluno. O filterwarnings
+# precisa rodar ANTES do `import requests` (que importa urllib3 transitivamente)
+# pra interceptar o warning emitido no import-time de urllib3.
 import argparse
 import sys
 import warnings
 from typing import Optional
 
-# Suprime NotOpenSSLWarning do urllib3 — macOS system Python usa LibreSSL e
-# emite warning toda vez que urllib3 importa. Mensagem é informativa
-# (compatibilidade de biblioteca), não actionable pro aluno.
 warnings.filterwarnings(
     "ignore",
     message=r".*OpenSSL.*",
     category=Warning,
 )
 
-import requests  # noqa: E402 — depois do filterwarnings pro urllib3 não disparar
+import requests
 
 from autograde_idp import __version__
 from autograde_idp.auth import (

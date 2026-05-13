@@ -4,6 +4,7 @@ Cobre: detecção de repo git, in-flight lock, geração/persistência de uuid,
 fluxo happy path, exercício ambíguo (sem marcador), conflito de lock,
 retry com mesmo uuid após falha de rede no /submissions.
 """
+
 from __future__ import annotations
 
 import json
@@ -127,7 +128,13 @@ def test_render_bulletin_omits_id_column_even_if_payload_has_id() -> None:
     out = validar.render_bulletin(
         {
             "criterios": [
-                {"id": "ignored", "passed": True, "points_earned": 1, "points_max": 1, "message": "m"},
+                {
+                    "id": "ignored",
+                    "passed": True,
+                    "points_earned": 1,
+                    "points_max": 1,
+                    "message": "m",
+                },
             ],
             "total": 1,
             "max_total": 1,
