@@ -11,9 +11,19 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 from typing import Optional
 
-import requests
+# Suprime NotOpenSSLWarning do urllib3 — macOS system Python usa LibreSSL e
+# emite warning toda vez que urllib3 importa. Mensagem é informativa
+# (compatibilidade de biblioteca), não actionable pro aluno.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*OpenSSL.*",
+    category=Warning,
+)
+
+import requests  # noqa: E402 — depois do filterwarnings pro urllib3 não disparar
 
 from autograde_idp import __version__
 from autograde_idp.auth import (

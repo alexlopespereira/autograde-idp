@@ -109,15 +109,32 @@ def test_render_bulletin_shows_marks_and_total() -> None:
     out = validar.render_bulletin(
         {
             "criterios": [
-                {"id": "c1", "passed": True, "points_earned": 10, "points_max": 10, "message": ""},
-                {"id": "c2", "passed": False, "points_earned": 0, "points_max": 5, "message": "x"},
+                {"passed": True, "points_earned": 10, "points_max": 10, "message": "alpha"},
+                {"passed": False, "points_earned": 0, "points_max": 5, "message": "beta"},
             ],
             "total": 10,
             "max_total": 15,
         }
     )
-    assert "c1" in out and "c2" in out
+    assert "10/10" in out and "0/5" in out
+    assert "alpha" in out and "beta" in out
     assert "10/15" in out
+
+
+def test_render_bulletin_omits_id_column_even_if_payload_has_id() -> None:
+    # CriterioResult do backend não emite id (app/grader.py). Mesmo se vier por
+    # acidente, não deve aparecer no output — regressão pro caso "?" no fallback.
+    out = validar.render_bulletin(
+        {
+            "criterios": [
+                {"id": "ignored", "passed": True, "points_earned": 1, "points_max": 1, "message": "m"},
+            ],
+            "total": 1,
+            "max_total": 1,
+        }
+    )
+    assert "ignored" not in out
+    assert "?" not in out
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="usa semântica fcntl.flock")
@@ -198,7 +215,8 @@ def test_run_validar_happy_path_auto_submit(
     )
     out = capsys.readouterr().out
     assert rc == 0
-    assert "repo_publico" in out
+    assert "10/10" in out  # points do critério renderizado
+    assert "Total: 10/100" in out
     assert "Submetido" in out
     grade_url, grade_body = calls[0]
     submit_url, submit_body = calls[1]
