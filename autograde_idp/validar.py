@@ -313,7 +313,7 @@ def run_validar(
         "shell_evidence": shell_evidence,
     }
     try:
-        preview = grade_preview_call(api, bundle.access_token, body)
+        preview = grade_preview_call(api, bundle.id_token, body)
     except requests.RequestException as exc:
         err_print(f"erro de rede em /grade-preview: {exc}")
         return 3
@@ -340,7 +340,7 @@ def run_validar(
 
     submit_body = dict(body, submission_uuid=submission_uuid)
     try:
-        result = submissions_call(api, bundle.access_token, submit_body)
+        result = submissions_call(api, bundle.id_token, submit_body)
     except requests.RequestException as exc:
         err_print(
             f"erro de rede em /submissions: {exc}. UUID preservado em "

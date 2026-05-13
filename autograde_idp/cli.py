@@ -86,7 +86,7 @@ def cmd_whoami(_args: argparse.Namespace) -> int:
         print(f"erro: {exc}", file=sys.stderr)
         return 2
     try:
-        identity = me_identity_call(api_url(), bundle.access_token)
+        identity = me_identity_call(api_url(), bundle.id_token)
     except requests.RequestException as exc:
         print(f"erro de rede em /me/identity: {exc}", file=sys.stderr)
         return 3

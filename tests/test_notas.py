@@ -109,7 +109,7 @@ def test_run_notas_happy_path_prints_table(
     assert "1.1" in out
     assert "80" in out
     assert captured["url"] == "http://test.local/me/grades"
-    assert captured["headers"] == {"Authorization": "Bearer at-test"}
+    assert captured["headers"] == {"Authorization": "Bearer h.e.s"}
 
 
 def test_run_notas_empty_list_prints_message(
@@ -177,7 +177,7 @@ def test_run_notas_refreshes_token_then_succeeds(
 
     rc = notas.run_notas()
     assert rc == 0
-    assert seen["headers"] == {"Authorization": "Bearer at-NEW"}
+    assert seen["headers"] == {"Authorization": f"Bearer {refreshed.id_token}"}
 
 
 def test_run_notas_backend_503_returns_3(
@@ -300,6 +300,27 @@ def test_cmd_whoami_happy_path_prints_turma(
     assert "Aluno X" in out
     assert "TD-2026-01" in out
     assert "token_age_days" in out
+
+
+def test_cmd_whoami_sends_id_token_not_access_token(
+    monkeypatch: pytest.MonkeyPatch,
+    cli_with_fresh_token: TokenBundle,
+) -> None:
+    # Regressão: backend AuthMiddleware faz verify_oauth2_token() que exige JWT
+    # id_token (3 segments). access_token do Google é opaco (formato ya29...) e
+    # quebra com "Wrong number of segments in token".
+    from autograde_idp import cli
+
+    sent: dict[str, str] = {}
+
+    def capture(_api, tok):
+        sent["token"] = tok
+        return {"email": "x@y.com", "nome": "X", "turma": "T"}
+
+    monkeypatch.setattr(cli, "me_identity_call", capture)
+    cli.main(["whoami"])
+    assert sent["token"] == cli_with_fresh_token.id_token
+    assert sent["token"] != cli_with_fresh_token.access_token
 
 
 def test_cmd_whoami_backend_4xx_returns_1(
