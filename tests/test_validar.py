@@ -652,6 +652,154 @@ def test_run_validar_prompts_perguntas_and_sends_respostas(
     assert submit_body_seen.get("respostas") == ["entendi git init e commit"]
 
 
+def test_run_validar_calls_grade_preview_twice_when_perguntas(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_repo: Path,
+    fake_token: TokenBundle,
+) -> None:
+    """Quando exercício tem perguntas: 1ª /grade-preview pra descobrir, 2ª com respostas."""
+    in_flight = tmp_path / "in-flight.json"
+    (git_repo / ".autograde-exercise").write_text("1.1\n", encoding="utf-8")
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+
+    grade_preview_calls: list[dict] = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        if url.endswith("/grade-preview"):
+            grade_preview_calls.append(json or {})
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                    "perguntas": [{"texto": "Q?", "peso": 10}],
+                },
+            )
+        if url.endswith("/submissions"):
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 5, "max_total": 110},
+                    "submission_id": json["submission_uuid"],
+                    "written": True,
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                },
+            )
+        raise AssertionError(f"url inesperada: {url}")
+
+    monkeypatch.setattr(validar.requests, "post", fake_post)
+
+    rc = validar.run_validar(
+        exercise_id="1.1",
+        auto_submit=True,  # auto: pula s/n, mas NÃO pula perguntas
+        cwd=git_repo,
+        in_flight=in_flight,
+        input_fn=lambda _p: "resposta valida",
+    )
+    assert rc == 0
+    assert len(grade_preview_calls) == 2
+    # primeira sem respostas, segunda com
+    assert "respostas" not in grade_preview_calls[0]
+    assert grade_preview_calls[1]["respostas"] == ["resposta valida"]
+
+
+def test_run_validar_calls_grade_preview_once_when_no_perguntas(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_repo: Path,
+    fake_token: TokenBundle,
+) -> None:
+    """Backward compat: sem perguntas = uma única chamada (comportamento antigo)."""
+    in_flight = tmp_path / "in-flight.json"
+    (git_repo / ".autograde-exercise").write_text("1.1\n", encoding="utf-8")
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+
+    preview_count = {"n": 0}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        if url.endswith("/grade-preview"):
+            preview_count["n"] += 1
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 10, "max_total": 100},
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                },  # sem perguntas
+            )
+        if url.endswith("/submissions"):
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 10, "max_total": 100},
+                    "submission_id": json["submission_uuid"],
+                    "written": True,
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                },
+            )
+        raise AssertionError(f"url inesperada: {url}")
+
+    monkeypatch.setattr(validar.requests, "post", fake_post)
+
+    rc = validar.run_validar(
+        exercise_id="1.1",
+        auto_submit=True,
+        cwd=git_repo,
+        in_flight=in_flight,
+    )
+    assert rc == 0
+    assert preview_count["n"] == 1
+
+
+def test_run_validar_preview_429_preserves_uuid(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_repo: Path,
+    fake_token: TokenBundle,
+) -> None:
+    """Rate-limit no segundo /grade-preview (com respostas) preserva UUID pra retry."""
+    in_flight = tmp_path / "in-flight.json"
+    (git_repo / ".autograde-exercise").write_text("1.1\n", encoding="utf-8")
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+
+    call_count = {"n": 0}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        if url.endswith("/grade-preview"):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return FakeResp(
+                    200,
+                    {
+                        "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                        "late": False,
+                        "dias_apos_recomendado": 0,
+                        "perguntas": [{"texto": "Q?", "peso": 10}],
+                    },
+                )
+            # segunda call (com respostas) → 429
+            return FakeResp(429, {"error": "rate_limit_preview_daily_cap"})
+        raise AssertionError(f"url inesperada: {url}")
+
+    monkeypatch.setattr(validar.requests, "post", fake_post)
+
+    rc = validar.run_validar(
+        exercise_id="1.1",
+        auto_submit=True,
+        cwd=git_repo,
+        in_flight=in_flight,
+        input_fn=lambda _p: "minha resposta",
+    )
+    assert rc == 3
+    # UUID preservado — aluno pode esperar reset à meia-noite e tentar de novo
+    persisted = json.loads(in_flight.read_text(encoding="utf-8"))
+    assert "1.1" in persisted
+
+
 def test_run_validar_429_preserves_uuid_for_retry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
