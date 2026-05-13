@@ -162,6 +162,19 @@ def _backend_url(api_base_url: str, suffix: str) -> str:
     return f"{api_base_url.rstrip('/')}{suffix}"
 
 
+def _parse_backend_json(resp: "requests.Response", url: str) -> dict[str, Any]:
+    if not resp.content:
+        return {}
+    try:
+        return resp.json()
+    except ValueError as exc:
+        snippet = resp.text[:200].replace("\n", " ")
+        raise AuthError(
+            f"Resposta inválida de {url} (HTTP {resp.status_code}): {snippet!r}. "
+            "Verifique se AUTOGRADE_API_URL aponta pro backend autograde."
+        ) from exc
+
+
 def device_login(
     client_id: str,
     api_base_url: str,
@@ -206,7 +219,7 @@ def device_login(
             json={"client_id": client_id, "device_code": device_code},
             timeout=15,
         )
-        body = token_resp.json() if token_resp.content else {}
+        body = _parse_backend_json(token_resp, exchange_url)
         if token_resp.status_code == 200:
             return _build_bundle_from_token_response(body, client_id, now())
         error = body.get("error")
@@ -247,12 +260,13 @@ def refresh_access_token(
     now: Callable[[], float] = _now,
 ) -> TokenBundle:
     """POST {api_base_url}/oauth/refresh. Preserva first_login_at."""
+    refresh_url = _backend_url(api_base_url, "/oauth/refresh")
     resp = requests.post(
-        _backend_url(api_base_url, "/oauth/refresh"),
+        refresh_url,
         json={"client_id": bundle.client_id, "refresh_token": bundle.refresh_token},
         timeout=15,
     )
-    body = resp.json() if resp.content else {}
+    body = _parse_backend_json(resp, refresh_url)
     if resp.status_code != 200:
         error = body.get("error", "")
         if error in {"invalid_grant", "invalid_token"}:

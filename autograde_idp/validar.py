@@ -31,7 +31,7 @@ from autograde_idp.auth import (
 from autograde_idp.evidence.shell import collect_for_exercise
 
 IN_FLIGHT_FILENAME = "in-flight.json"
-DEFAULT_API_URL = "http://localhost:8080"
+DEFAULT_API_URL = "https://autograde-backend-1065810445001.southamerica-east1.run.app"
 MARKER_FILENAME = ".autograde-exercise"
 
 
