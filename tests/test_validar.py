@@ -4,6 +4,7 @@ Cobre: detecção de repo git, in-flight lock, geração/persistência de uuid,
 fluxo happy path, exercício ambíguo (sem marcador), conflito de lock,
 retry com mesmo uuid após falha de rede no /submissions.
 """
+
 from __future__ import annotations
 
 import json
@@ -127,7 +128,13 @@ def test_render_bulletin_omits_id_column_even_if_payload_has_id() -> None:
     out = validar.render_bulletin(
         {
             "criterios": [
-                {"id": "ignored", "passed": True, "points_earned": 1, "points_max": 1, "message": "m"},
+                {
+                    "id": "ignored",
+                    "passed": True,
+                    "points_earned": 1,
+                    "points_max": 1,
+                    "message": "m",
+                },
             ],
             "total": 1,
             "max_total": 1,
@@ -531,3 +538,157 @@ def test_run_validar_4xx_final_clears_uuid(
     )
     assert rc == 3
     assert json.loads(in_flight.read_text(encoding="utf-8")) == {}
+
+
+# ---------- collect_respostas (perguntas subjetivas) ----------
+
+
+def test_collect_respostas_returns_empty_when_no_perguntas() -> None:
+    result = validar.collect_respostas([])
+    assert result == []
+
+
+def test_collect_respostas_collects_answers_in_order() -> None:
+    inputs = iter(["resposta um", "resposta dois"])
+    outputs: list[str] = []
+    result = validar.collect_respostas(
+        [{"texto": "Q1?", "peso": 10}, {"texto": "Q2?", "peso": 5}],
+        input_fn=lambda _prompt: next(inputs),
+        print_fn=outputs.append,
+    )
+    assert result == ["resposta um", "resposta dois"]
+    # ambas as perguntas aparecem no output
+    joined = "\n".join(outputs)
+    assert "Q1?" in joined
+    assert "Q2?" in joined
+
+
+def test_collect_respostas_loops_until_non_empty() -> None:
+    # vazio, espaço, válido → deve retornar só o último
+    inputs = iter(["", "   ", "finalmente"])
+    outputs: list[str] = []
+    result = validar.collect_respostas(
+        [{"texto": "Q?", "peso": 10}],
+        input_fn=lambda _prompt: next(inputs),
+        print_fn=outputs.append,
+    )
+    assert result == ["finalmente"]
+    # mensagem de aviso aparece 2x (após cada vazio)
+    aviso = [line for line in outputs if "vazia" in line.lower()]
+    assert len(aviso) == 2
+
+
+def test_collect_respostas_strips_whitespace() -> None:
+    result = validar.collect_respostas(
+        [{"texto": "Q", "peso": 5}],
+        input_fn=lambda _p: "   com espaços ao redor   ",
+        print_fn=lambda _s: None,
+    )
+    assert result == ["com espaços ao redor"]
+
+
+def test_collect_respostas_raises_eoferror_on_eof() -> None:
+    def boom(_prompt: str) -> str:
+        raise EOFError()
+
+    with pytest.raises(EOFError):
+        validar.collect_respostas(
+            [{"texto": "Q", "peso": 5}], input_fn=boom, print_fn=lambda _s: None
+        )
+
+
+def test_run_validar_prompts_perguntas_and_sends_respostas(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_repo: Path,
+    fake_token: TokenBundle,
+) -> None:
+    """E2E: backend retorna perguntas → CLI pergunta → submission inclui respostas."""
+    in_flight = tmp_path / "in-flight.json"
+    (git_repo / ".autograde-exercise").write_text("1.1\n", encoding="utf-8")
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+
+    submit_body_seen: dict = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        if url.endswith("/grade-preview"):
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                    "perguntas": [
+                        {"texto": "O que você entendeu?", "peso": 10},
+                    ],
+                },
+            )
+        if url.endswith("/submissions"):
+            submit_body_seen.update(json or {})
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 7, "max_total": 110},
+                    "submission_id": json["submission_uuid"],
+                    "written": True,
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                },
+            )
+        raise AssertionError(f"url inesperada: {url}")
+
+    monkeypatch.setattr(validar.requests, "post", fake_post)
+
+    # input_fn é chamado pra (a) pergunta e (b) prompt s/n quando auto_submit=False
+    inputs = iter(["entendi git init e commit", "s"])
+    rc = validar.run_validar(
+        exercise_id=None,
+        auto_submit=False,
+        cwd=git_repo,
+        in_flight=in_flight,
+        input_fn=lambda _prompt: next(inputs),
+    )
+    assert rc == 0
+    assert submit_body_seen.get("respostas") == ["entendi git init e commit"]
+
+
+def test_run_validar_429_preserves_uuid_for_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_repo: Path,
+    fake_token: TokenBundle,
+) -> None:
+    """Rate-limit do backend (429) deve preservar UUID — aluno tenta de novo após cooldown."""
+    in_flight = tmp_path / "in-flight.json"
+    (git_repo / ".autograde-exercise").write_text("1.1\n", encoding="utf-8")
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        if url.endswith("/grade-preview"):
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                    "perguntas": [{"texto": "Q?", "peso": 10}],
+                },
+            )
+        if url.endswith("/submissions"):
+            return FakeResp(429, {"error": "rate_limit_cooldown"})
+        raise AssertionError(f"url inesperada: {url}")
+
+    monkeypatch.setattr(validar.requests, "post", fake_post)
+
+    inputs = iter(["minha resposta", "s"])
+    rc = validar.run_validar(
+        exercise_id="1.1",
+        auto_submit=False,
+        cwd=git_repo,
+        in_flight=in_flight,
+        input_fn=lambda _p: next(inputs),
+    )
+    assert rc == 3
+    # UUID preservado (não foi limpo) — diferente do 4xx que limpa
+    persisted = json.loads(in_flight.read_text(encoding="utf-8"))
+    assert "1.1" in persisted
