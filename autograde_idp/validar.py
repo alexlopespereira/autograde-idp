@@ -201,11 +201,10 @@ def render_bulletin(bulletin: dict[str, Any]) -> str:
     lines: list[str] = []
     for c in bulletin.get("criterios", []) or []:
         mark = ok_mark if c.get("passed") else fail_mark
-        cid = c.get("id", "?")
         pe = c.get("points_earned", 0)
         pm = c.get("points_max", 0)
         msg = c.get("message", "") or ""
-        lines.append(f"  {mark} {cid}  {pe}/{pm}  {msg}".rstrip())
+        lines.append(f"  {mark} {pe}/{pm}  {msg}".rstrip())
     total = bulletin.get("total", 0)
     max_total = bulletin.get("max_total", 0)
     lines.append("")
