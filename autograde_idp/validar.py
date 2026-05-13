@@ -196,6 +196,36 @@ def _emoji_marks() -> tuple[str, str]:
     return "[OK]", "[FAIL]"
 
 
+def collect_respostas(
+    perguntas: list[dict[str, Any]],
+    *,
+    input_fn: Callable[[str], str] = input,
+    print_fn: Callable[[str], None] = print,
+) -> list[str]:
+    """Pede ao aluno cada pergunta subjetiva. Loop até resposta não-vazia.
+
+    Sempre síncrono e interativo — exercício com perguntas força resposta
+    (decisão de produto). EOFError sobe pro chamador tratar (ex: pipe sem TTY).
+    """
+    if not perguntas:
+        return []
+    print_fn("")
+    print_fn(f"Perguntas ({len(perguntas)}) — responda antes de submeter:")
+    respostas: list[str] = []
+    for idx, pergunta in enumerate(perguntas):
+        texto = str(pergunta.get("texto", "")).strip() or "(sem texto)"
+        print_fn(f"\n  [{idx + 1}/{len(perguntas)}] {texto}")
+        while True:
+            raw = input_fn("  Resposta: ")
+            answer = raw.strip()
+            if answer:
+                respostas.append(answer)
+                break
+            print_fn("  Resposta não pode ser vazia. Tente de novo.")
+    print_fn("")
+    return respostas
+
+
 def render_bulletin(bulletin: dict[str, Any]) -> str:
     ok_mark, fail_mark = _emoji_marks()
     lines: list[str] = []
@@ -325,6 +355,16 @@ def run_validar(
 
     print_fn(render_preview(preview))
 
+    perguntas = preview.get("perguntas") or []
+    try:
+        respostas = collect_respostas(perguntas, input_fn=input_fn, print_fn=print_fn)
+    except EOFError:
+        err_print(
+            "perguntas exigem resposta interativa; rode sem pipe/redirect ou "
+            "responda no terminal."
+        )
+        return 2
+
     if auto_submit:
         choice = "s"
     else:
@@ -338,6 +378,8 @@ def run_validar(
         return 0
 
     submit_body = dict(body, submission_uuid=submission_uuid)
+    if respostas:
+        submit_body["respostas"] = respostas
     try:
         result = submissions_call(api, bundle.id_token, submit_body)
     except requests.RequestException as exc:
@@ -347,6 +389,12 @@ def run_validar(
         )
         return 3
     except HttpError as exc:
+        if exc.status == 429:
+            err_print(
+                f"limite atingido (HTTP 429): {exc.text}. UUID preservado para "
+                f"retry depois do cooldown/janela diária."
+            )
+            return 3
         if 400 <= exc.status < 500:
             try:
                 clear_uuid(path, exercise_id)
