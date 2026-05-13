@@ -6,6 +6,7 @@ e POST /submissions com submission_uuid persistido em ~/.git-exercicios/
 in-flight.json. Lock via fcntl/msvcrt protege contra 2 terminais paralelos
 (R4).
 """
+
 from __future__ import annotations
 
 import json
@@ -353,17 +354,35 @@ def run_validar(
         err_print(f"erro: {exc}")
         return 3
 
-    print_fn(render_preview(preview))
-
     perguntas = preview.get("perguntas") or []
-    try:
-        respostas = collect_respostas(perguntas, input_fn=input_fn, print_fn=print_fn)
-    except EOFError:
-        err_print(
-            "perguntas exigem resposta interativa; rode sem pipe/redirect ou "
-            "responda no terminal."
-        )
-        return 2
+    respostas: list[str] = []
+    if perguntas:
+        # Coleta respostas ANTES de renderizar o bulletin — segunda call do
+        # /grade-preview retorna bulletin já com a nota da reflexao do Gemini.
+        try:
+            respostas = collect_respostas(perguntas, input_fn=input_fn, print_fn=print_fn)
+        except EOFError:
+            err_print(
+                "perguntas exigem resposta interativa; rode sem pipe/redirect ou "
+                "responda no terminal."
+            )
+            return 2
+        try:
+            preview = grade_preview_call(api, bundle.id_token, dict(body, respostas=respostas))
+        except requests.RequestException as exc:
+            err_print(f"erro de rede em /grade-preview: {exc}")
+            return 3
+        except HttpError as exc:
+            if exc.status == 429:
+                err_print(
+                    f"limite de previews atingido (HTTP 429): {exc.text}. "
+                    "Aguarde cooldown ou volte amanhã (reset à meia-noite BRT)."
+                )
+                return 3
+            err_print(f"/grade-preview falhou: HTTP {exc.status} {exc.text}")
+            return 3
+
+    print_fn(render_preview(preview))
 
     if auto_submit:
         choice = "s"
@@ -402,9 +421,7 @@ def run_validar(
                 pass
             err_print(f"/submissions rejeitou: HTTP {exc.status} {exc.text}")
             return 3
-        err_print(
-            f"/submissions falhou (HTTP {exc.status}). UUID preservado para retry."
-        )
+        err_print(f"/submissions falhou (HTTP {exc.status}). UUID preservado para retry.")
         return 3
     except ValidarError as exc:
         err_print(f"erro: {exc}")
