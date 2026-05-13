@@ -134,7 +134,7 @@ def run_notas(
 
     api = api_url()
     try:
-        payload = me_grades_call(api, bundle.access_token)
+        payload = me_grades_call(api, bundle.id_token)
     except requests.RequestException as exc:
         err_print(f"erro de rede em /me/grades: {exc}")
         return 3

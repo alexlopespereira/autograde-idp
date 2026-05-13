@@ -151,7 +151,7 @@ def test_run_validar_happy_path_auto_submit(
     calls: list[tuple[str, dict]] = []
 
     def fake_post(url, json=None, headers=None, timeout=None):
-        assert headers == {"Authorization": "Bearer at-test"}
+        assert headers == {"Authorization": "Bearer h.e.s"}
         calls.append((url, json or {}))
         if url.endswith("/grade-preview"):
             return FakeResp(
