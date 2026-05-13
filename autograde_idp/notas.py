@@ -20,7 +20,7 @@ from autograde_idp.auth import (
     load_token,
 )
 
-DEFAULT_API_URL = "http://localhost:8080"
+DEFAULT_API_URL = "https://autograde-backend-1065810445001.southamerica-east1.run.app"
 EMPTY_MESSAGE = "Você ainda não submeteu nenhum exercício."
 
 

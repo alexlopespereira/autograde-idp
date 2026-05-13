@@ -197,6 +197,34 @@ def test_device_login_access_denied_raises():
 
 
 @responses.activate
+def test_device_login_raises_helpful_error_when_backend_returns_non_json():
+    # Regressão: aluno apontando AUTOGRADE_API_URL pro endereço errado (ex.: web
+    # server local em localhost:8080) recebia JSONDecodeError críptico. Agora
+    # AuthError com a URL e snippet da resposta.
+    responses.add(
+        responses.POST,
+        DEVICE_CODE_URL,
+        json={
+            "device_code": "dc",
+            "user_code": "X",
+            "verification_url": "u",
+            "expires_in": 60,
+            "interval": 0,
+        },
+        status=200,
+    )
+    responses.add(
+        responses.POST,
+        EXCHANGE_URL,
+        body="<html>nginx welcome</html>",
+        status=200,
+        content_type="text/html",
+    )
+    with pytest.raises(AuthError, match="AUTOGRADE_API_URL"):
+        device_login(CLIENT_ID, API_BASE, poll_sleep=lambda _s: None, now=lambda: 0.0)
+
+
+@responses.activate
 def test_device_login_trims_trailing_slash_on_api_base_url():
     responses.add(
         responses.POST,
