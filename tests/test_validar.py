@@ -122,6 +122,35 @@ def test_render_bulletin_shows_marks_and_total() -> None:
     assert "10/15" in out
 
 
+def test_render_bulletin_wraps_long_message_to_next_line() -> None:
+    # Feedback do Gemini pode ser longo (>50 chars). Deve quebrar pra linha
+    # separada indentada em vez de fazer scroll horizontal.
+    feedback_longo = (
+        "Aluno citou git init e git commit corretamente mas não explicou git push, "
+        "pelo qual foram descontados 2 pontos do total."
+    )
+    out = validar.render_bulletin(
+        {
+            "criterios": [
+                {"passed": True, "points_earned": 8, "points_max": 10, "message": feedback_longo},
+            ],
+            "total": 8,
+            "max_total": 10,
+        }
+    )
+    lines = out.splitlines()
+    # Linha de header do critério (não confundir com "Total: 8/10")
+    crit_lines = [line for line in lines if line.startswith("  ✅ 8/10")]
+    assert len(crit_lines) == 1
+    assert feedback_longo not in crit_lines[0]
+    # Feedback aparece em linha(s) indentada(s) abaixo
+    indented = [line for line in lines if line.startswith("      ")]
+    assert indented, "feedback deveria estar em linha indentada"
+    joined = " ".join(line.strip() for line in indented)
+    assert "git init" in joined
+    assert "push" in joined
+
+
 def test_render_bulletin_omits_id_column_even_if_payload_has_id() -> None:
     # CriterioResult do backend não emite id (app/grader.py). Mesmo se vier por
     # acidente, não deve aparecer no output — regressão pro caso "?" no fallback.
