@@ -227,15 +227,31 @@ def collect_respostas(
     return respostas
 
 
+FEEDBACK_INLINE_MAX = 50  # acima disso, msg quebra pra linha indentada
+FEEDBACK_WRAP_WIDTH = 76
+
+
 def render_bulletin(bulletin: dict[str, Any]) -> str:
+    import textwrap
+
     ok_mark, fail_mark = _emoji_marks()
     lines: list[str] = []
     for c in bulletin.get("criterios", []) or []:
         mark = ok_mark if c.get("passed") else fail_mark
         pe = c.get("points_earned", 0)
         pm = c.get("points_max", 0)
-        msg = c.get("message", "") or ""
-        lines.append(f"  {mark} {pe}/{pm}  {msg}".rstrip())
+        msg = (c.get("message", "") or "").strip()
+        header = f"  {mark} {pe}/{pm}"
+        if not msg:
+            lines.append(header)
+        elif len(msg) <= FEEDBACK_INLINE_MAX and "\n" not in msg:
+            lines.append(f"{header}  {msg}")
+        else:
+            lines.append(header)
+            for paragraph in msg.splitlines() or [msg]:
+                wrapped = textwrap.wrap(paragraph, width=FEEDBACK_WRAP_WIDTH) or [""]
+                for chunk in wrapped:
+                    lines.append(f"      {chunk}")
     total = bulletin.get("total", 0)
     max_total = bulletin.get("max_total", 0)
     lines.append("")

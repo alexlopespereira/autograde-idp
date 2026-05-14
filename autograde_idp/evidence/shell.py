@@ -167,9 +167,10 @@ def commands_for_exercise(
 ) -> List[ShellCommand]:
     """Lista hardcoded de comandos relevantes para cada exercício.
 
-    Atualmente apenas ``1.2`` precisa de evidências shell (gh CLI).
+    Exercícios 1.2, 1.3 e 1.4 envolvem `gh` CLI → coletam mesma evidência
+    (versão, auth, repo view).
     """
-    if exercise_id == "1.2":
+    if exercise_id in {"1.2", "1.3", "1.4"}:
         cmds: List[ShellCommand] = [
             ShellCommand(tool="shell", cmd=["gh", "--version"], extract="gh_version"),
             ShellCommand(tool="shell", cmd=["gh", "auth", "status"], extract="gh_auth"),
