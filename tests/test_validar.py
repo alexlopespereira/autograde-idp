@@ -42,6 +42,16 @@ def git_repo(tmp_path: Path) -> Path:
     return repo
 
 
+@pytest.fixture(autouse=True)
+def _isolate_repo_map(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Isola repo-map.json por test. Sem isso, remember_repo escreve no
+    ~/.git-exercicios/ real e contamina outros tests com estado persistido."""
+    isolated = tmp_path_factory.mktemp("repo-map-iso") / "repo-map.json"
+    monkeypatch.setattr(validar, "repo_map_path", lambda *_a, **_k: isolated)
+
+
 @pytest.fixture
 def fake_token(monkeypatch: pytest.MonkeyPatch) -> TokenBundle:
     bundle = TokenBundle(
@@ -782,6 +792,67 @@ def test_run_validar_calls_grade_preview_once_when_no_perguntas(
     )
     assert rc == 0
     assert preview_count["n"] == 1
+
+
+def test_detect_repo_mismatch_returns_other_exercise_id(tmp_path: Path) -> None:
+    map_path = tmp_path / "repo-map.json"
+    validar.remember_repo("1.3", "https://github.com/u/meu-segundo-rep.git", map_path)
+    # Repo já usado pra 1.3 → rodar 1.4 com mesmo repo deve apontar conflito
+    conflict = validar.detect_repo_mismatch(
+        "1.4", "https://github.com/u/meu-segundo-rep.git", map_path
+    )
+    assert conflict == "1.3"
+
+
+def test_detect_repo_mismatch_silent_for_same_exercise(tmp_path: Path) -> None:
+    map_path = tmp_path / "repo-map.json"
+    validar.remember_repo("1.1", "https://github.com/u/r.git", map_path)
+    # Re-submissão do mesmo exercício no mesmo repo NÃO deve avisar
+    assert validar.detect_repo_mismatch("1.1", "https://github.com/u/r.git", map_path) is None
+
+
+def test_detect_repo_mismatch_silent_for_brand_new_repo(tmp_path: Path) -> None:
+    map_path = tmp_path / "repo-map.json"
+    validar.remember_repo("1.1", "https://github.com/u/a.git", map_path)
+    # Repo nunca visto → sem aviso (primeira tentativa pra exercise novo)
+    assert validar.detect_repo_mismatch("1.2", "https://github.com/u/novo.git", map_path) is None
+
+
+def test_remember_repo_dedupes(tmp_path: Path) -> None:
+    map_path = tmp_path / "repo-map.json"
+    validar.remember_repo("1.1", "https://github.com/u/r.git", map_path)
+    validar.remember_repo("1.1", "https://github.com/u/r.git", map_path)
+    data = json.loads(map_path.read_text(encoding="utf-8"))
+    assert data["1.1"] == ["https://github.com/u/r.git"]
+
+
+def test_run_validar_warns_and_prompts_on_repo_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_repo: Path,
+    fake_token: TokenBundle,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Repo do git_repo já marcado pra 1.3 → validar 1.4 dispara warning."""
+    in_flight = tmp_path / "in-flight.json"
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+
+    # Marca o repo do fixture como usado pra 1.3
+    repo_map_file = validar.repo_map_path()
+    validar.remember_repo("1.3", "https://github.com/u/r.git", repo_map_file)
+
+    # input_fn responde "n" no prompt de confirmação → aborta
+    rc = validar.run_validar(
+        exercise_id="1.4",
+        auto_submit=False,
+        cwd=git_repo,
+        in_flight=in_flight,
+        input_fn=lambda _p: "n",
+    )
+    out = capsys.readouterr().out
+    assert rc == 2  # cancelado por escolha do user
+    assert "1.3" in out  # warning cita o exercício do conflito
+    assert "Cancelado" in out
 
 
 def test_run_validar_preview_429_preserves_uuid(

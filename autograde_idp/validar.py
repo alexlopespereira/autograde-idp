@@ -190,6 +190,62 @@ def clear_uuid(path: Path, exercise_id: str) -> None:
             _save_dict(f, data)
 
 
+REPO_MAP_FILENAME = "repo-map.json"
+
+
+def repo_map_path(base_dir: Optional[Path] = None) -> Path:
+    base = base_dir if base_dir is not None else config_dir()
+    return base / REPO_MAP_FILENAME
+
+
+def _load_repo_map(path: Path) -> dict[str, list[str]]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for k, v in data.items():
+        if isinstance(v, list):
+            out[str(k)] = [str(u) for u in v if isinstance(u, str)]
+    return out
+
+
+def detect_repo_mismatch(
+    exercise_id: str,
+    repo_url: str,
+    map_path: Optional[Path] = None,
+) -> Optional[str]:
+    """Se repo_url foi usado pra OUTRO exercício, retorna esse exercise_id.
+
+    None = sem conflito (primeira vez OU repo já usado pra este exercício).
+    """
+    data = _load_repo_map(map_path or repo_map_path())
+    for ex_id, urls in data.items():
+        if ex_id == exercise_id:
+            continue
+        if repo_url in urls:
+            return ex_id
+    return None
+
+
+def remember_repo(
+    exercise_id: str, repo_url: str, map_path: Optional[Path] = None
+) -> None:
+    """Adiciona (exercise_id, repo_url) ao mapa local. Dedupe."""
+    p = map_path or repo_map_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    data = _load_repo_map(p)
+    urls = data.get(exercise_id, [])
+    if repo_url not in urls:
+        urls.append(repo_url)
+        data[exercise_id] = urls
+        p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
 def _emoji_marks() -> tuple[str, str]:
     enc = (getattr(sys.stdout, "encoding", "") or "").lower()
     if "utf" in enc:
@@ -331,6 +387,25 @@ def run_validar(
             err_print(f"erro: {exc}")
             return 2
 
+    conflict_ex = detect_repo_mismatch(exercise_id, repo_url)
+    if conflict_ex is not None:
+        print_fn(
+            f"\n⚠️  Aviso: este repo ({repo_url}) foi usado anteriormente "
+            f"para o exercício {conflict_ex}.\n"
+            f"   Você está rodando `autograde validar {exercise_id}` — "
+            f"certifique-se de estar no diretório certo.\n"
+        )
+        if not auto_submit:
+            try:
+                confirm = input_fn(
+                    f"Continuar com {exercise_id} neste repo mesmo assim? (s/n): "
+                ).strip().lower()
+            except EOFError:
+                confirm = "n"
+            if confirm != "s":
+                print_fn("Cancelado. Mude pro diretório certo e rode novamente.")
+                return 2
+
     try:
         bundle = _load_fresh_bundle()
     except TokenAgeExceededError as exc:
@@ -447,6 +522,12 @@ def run_validar(
         clear_uuid(path, exercise_id)
     except InFlightLockedError:
         pass
+
+    # Memoriza repo usado por este exercício pra warning futuro.
+    try:
+        remember_repo(exercise_id, repo_url)
+    except OSError:
+        pass  # falha de disco não-bloqueante
 
     written = result.get("written", False)
     sid = result.get("submission_id", submission_uuid)
