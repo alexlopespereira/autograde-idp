@@ -4,6 +4,7 @@ Subcomandos:
 - autograde --version
 - autograde login
 - autograde whoami
+- autograde register
 - autograde validar [exercicio_id] [--auto-submit]
 - autograde notas
 """
@@ -50,6 +51,7 @@ from autograde_idp.notas import (
     me_identity_call,
     run_notas,
 )
+from autograde_idp.register import run_register
 from autograde_idp.validar import run_validar
 
 
@@ -135,6 +137,10 @@ def cmd_notas(_args: argparse.Namespace) -> int:
     return run_notas()
 
 
+def cmd_register(_args: argparse.Namespace) -> int:
+    return run_register()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="autograde",
@@ -144,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("login", help="login via Google Device Flow")
     sub.add_parser("whoami", help="mostra usuário autenticado")
+    sub.add_parser(
+        "register",
+        help="auto-registro: cadastra aluno fora do roster (turma + github_username)",
+    )
     sub.add_parser("version", help="mostra versão e plataforma")
     val = sub.add_parser("validar", help="valida exercício e opcionalmente submete")
     val.add_argument(
@@ -170,6 +180,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_login(args)
     if args.command == "whoami":
         return cmd_whoami(args)
+    if args.command == "register":
+        return cmd_register(args)
     if args.command == "validar":
         return cmd_validar(args)
     if args.command == "notas":

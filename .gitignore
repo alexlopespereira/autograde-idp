@@ -14,3 +14,5 @@ htmlcov/
 build/
 dist/
 .playwright-mcp/
+# Clone local do backend (repo separado) — não commitar dentro do CLI.
+autograde-idp-backend/
