@@ -23,7 +23,9 @@ ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\+00:00$")
 def _write(root: Path, rel: str, text: str) -> None:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text, encoding="utf-8")
+    # write_bytes para preservar \n exato (Windows traduziria \n → \r\n
+    # com write_text, quebrando sha256 e size_bytes esperados nos asserts).
+    p.write_bytes(text.encode("utf-8"))
 
 
 def test_absent_required_artifact_returns_exists_false(tmp_path: Path) -> None:
