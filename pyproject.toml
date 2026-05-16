@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autograde-idp"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI cliente do autograder IDP-TD (login Google Device Flow + submit de exercícios)."
 requires-python = ">=3.9"
 authors = [{ name = "Alex Lopes Pereira", email = "alexlopespereira@gmail.com" }]

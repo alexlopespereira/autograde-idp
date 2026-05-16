@@ -29,6 +29,7 @@ from autograde_idp.auth import (
     ensure_fresh_token,
     load_token,
 )
+from autograde_idp.evidence import artifacts as artifacts_mod
 from autograde_idp.evidence.shell import collect_for_exercise
 
 IN_FLIGHT_FILENAME = "in-flight.json"
@@ -428,10 +429,15 @@ def run_validar(
     api = api_url()
     shell_results = collect_for_exercise(exercise_id, repo_url)
     shell_evidence = [r.to_dict() for r in shell_results]
+    artifact_results = artifacts_mod.collect_for_exercise(
+        exercise_id, cwd if cwd is not None else Path.cwd()
+    )
+    artifacts_evidence = [r.to_dict() for r in artifact_results]
     body = {
         "exercicio": exercise_id,
         "repo_url": repo_url,
         "shell_evidence": shell_evidence,
+        "artifacts_evidence": artifacts_evidence,
     }
     try:
         preview = grade_preview_call(api, bundle.id_token, body)
