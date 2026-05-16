@@ -364,6 +364,97 @@ def test_run_validar_sends_shell_evidence_for_ex_1_2(
     assert submit_body["submission_uuid"]
 
 
+def test_run_validar_sends_artifacts_evidence_for_ex_2_1(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_repo: Path,
+    fake_token: TokenBundle,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Exercise 2.1 dispara collect_for_exercise dos artifacts e envia
+    artifacts_evidence em /grade-preview e /submissions, lado-a-lado com
+    shell_evidence (que volta vazio pra 2.1 mas a chave existe)."""
+    in_flight = tmp_path / "in-flight.json"
+    (git_repo / ".autograde-exercise").write_text("2.1\n", encoding="utf-8")
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+
+    # Escrever 2 dos 6 artefatos esperados — pra confirmar que o body do
+    # request reflete exatamente o estado do filesystem (3 ausentes + 2
+    # presentes + 1 ausente = 6 entries com exists variável).
+    (git_repo / "A_meta_prompt.md").write_text(
+        "# Meta\n\nPesquisa sobre URA da Caixa.\nhttps://gov.br/x\n",
+        encoding="utf-8",
+    )
+    (git_repo / "C_mapa_atores.md").write_text(
+        "# Mapa\n\n| Ator | Tipo |\n|---|---|\n| Cidadão | Humano |\n",
+        encoding="utf-8",
+    )
+
+    calls: list[tuple[str, dict]] = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append((url, json or {}))
+        if url.endswith("/grade-preview"):
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                },
+            )
+        return FakeResp(
+            200,
+            {
+                "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                "submission_id": json["submission_uuid"],
+                "written": True,
+                "late": False,
+                "dias_apos_recomendado": 0,
+            },
+        )
+
+    monkeypatch.setattr(validar.requests, "post", fake_post)
+
+    rc = validar.run_validar(
+        exercise_id=None,
+        auto_submit=True,
+        cwd=git_repo,
+        in_flight=in_flight,
+    )
+    assert rc == 0
+
+    grade_url, grade_body = calls[0]
+    submit_url, submit_body = calls[1]
+    assert grade_url == "http://test.local/grade-preview"
+    assert submit_url == "http://test.local/submissions"
+    assert grade_body["exercicio"] == "2.1"
+
+    # artifacts_evidence presente em ambos
+    assert "artifacts_evidence" in grade_body
+    assert "artifacts_evidence" in submit_body
+
+    artifacts = grade_body["artifacts_evidence"]
+    assert len(artifacts) == 6, f"esperado 6 artefatos, recebi {len(artifacts)}"
+
+    by_role = {e["role"]: e for e in artifacts}
+    assert by_role["meta_prompt"]["exists"] is True
+    assert by_role["meta_prompt"]["word_count"] >= 5
+    assert "https://gov.br/x" in by_role["meta_prompt"]["links"]
+    assert by_role["actor_map"]["exists"] is True
+    # 4 ausentes
+    for role in ("report_ai_1", "report_ai_2", "synthesis", "grill_transcript"):
+        assert by_role[role]["exists"] is False
+        assert by_role[role]["word_count"] == 0
+
+    # shell_evidence ainda presente (vazio para 2.1) — backend distingue por
+    # chave presente vs ausente; não-quebrar consumer existente.
+    assert grade_body["shell_evidence"] == []
+
+    # Submit body bate com preview body nas chaves relevantes
+    assert submit_body["artifacts_evidence"] == grade_body["artifacts_evidence"]
+
+
 def test_run_validar_exits_2_when_exercise_ambiguous(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
