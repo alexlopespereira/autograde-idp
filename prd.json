@@ -41,7 +41,7 @@
         "AC12: Nenhum import circular profile.py ↔ cli.py. profile.py é leaf module. cli.py importa de profile.py."
       ],
       "priority": 2,
-      "passes": false
+      "passes": true
     }
   ]
 }
