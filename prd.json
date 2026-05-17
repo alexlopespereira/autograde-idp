@@ -1,0 +1,47 @@
+{
+  "projectName": "CLI — completar perfil no primeiro login (Fatia 5)",
+  "branchName": "feat/completar-perfil-login",
+  "sourcePlan": ".claude/plans/cadastro-2026-cli.md",
+  "hasFinancialCost": false,
+  "userStories": [
+    {
+      "id": "US-01",
+      "title": "autograde_idp/profile.py — HTTP helpers + prompt + regex GitHub",
+      "description": "Criar módulo novo autograde_idp/profile.py que encapsula a interação com os endpoints /me/identity (GET) e /me/profile (POST) e a UX de prompt + validação local. Funções públicas: (a) fetch_me_identity(api: str, id_token: str) -> dict — GET /me/identity, retorna dict com keys email/nome/turma/github_username, raise HttpError em status != 200; (b) post_me_profile(api: str, id_token: str, nome: str, github_username: str) -> dict — POST /me/profile com body JSON {nome, github_username}, retorna {updated, skipped} em 200, raise HttpError em status != 200; (c) prompt_github_username(input_fn=input, print_fn=print) -> str — loop interativo: pede 'Seu username do GitHub (sem @): ', strip + lstrip('@'), valida com GITHUB_USERNAME_RE; se inválido, print erro amigável + repete; após valido, pede confirmação 'Confirmar \\'<gh>\\'? [s/N]: ' — se 's'/'sim' retorna, senão volta ao prompt; (d) is_interactive() -> bool — wrapper testável de sys.stdin.isatty() && sys.stdout.isatty(). Constante module-level GITHUB_USERNAME_RE com regex v3: '^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$' — IDÊNTICA à do backend app/endpoints.py:132 (PR #12). Reusar HttpError de autograde_idp.notas (não criar nova exception). Não importar nada de cli.py — módulo standalone, testável isoladamente.",
+      "acceptanceCriteria": [
+        "AC1: autograde_idp/profile.py existe e exporta: GITHUB_USERNAME_RE, fetch_me_identity, post_me_profile, prompt_github_username, is_interactive.",
+        "AC2: GITHUB_USERNAME_RE = re.compile(r'^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$'). Validar com >=8 casos: aceita 'foo', 'foo-bar', 'a', 'a-b-c', 'a'*39; rejeita 'foo--bar', '-foo', 'foo-', 'foo bar', '', 'a'*40. (Test parametrizado.)",
+        "AC3: fetch_me_identity faz GET {api}/me/identity com header Authorization: Bearer <id_token>. Retorna resp.json() em 200. Em status != 200, raise HttpError(status, text). Test mocka requests.get; cobre happy 200, 401, 403, 500, 502 (rede via requests.RequestException).",
+        "AC4: post_me_profile faz POST {api}/me/profile com header Authorization: Bearer <id_token> e body JSON {nome, github_username}. Retorna resp.json() em 200. Em != 200, raise HttpError. Test cobre happy 200, 400 invalid_github_username, 403 not_in_roster, 5xx.",
+        "AC5: prompt_github_username loop: aceita username válido após confirmação 's'/'sim'/'S'. Se input inválido por regex, print erro mencionando 'alfanumérico + hífen, 1-39 chars, sem hífen no início/fim/consecutivo' e re-prompta. Confirmação 'n' ou Enter vazio → re-prompt. Strip leading '@' aceito. Test: input_fn iterator com ['foo bar', 'foo--bar', 'foo', 's'] → retorna 'foo'; ['@bar', 's'] → retorna 'bar'.",
+        "AC6: is_interactive() retorna sys.stdin.isatty() AND sys.stdout.isatty(). Test via monkeypatch dos isatty.",
+        "AC7: tests/test_profile.py existe com >=12 testes passando: 1 paramerized de regex (>=8 cases), 4 de fetch_me_identity (happy + 3 errors), 4 de post_me_profile (happy + 3 errors), 2 de prompt (happy + retry + @prefix), 1 de is_interactive. Rodar 'pytest tests/test_profile.py -v' → 0 fail.",
+        "AC8: ruff check autograde_idp/profile.py tests/test_profile.py exit 0. Tipos: usar typing.Any onde retorno é JSON dict (não inventar TypedDict).",
+        "AC9: Nenhuma modificação em outros arquivos. Story isolada e aditiva."
+      ],
+      "priority": 1,
+      "passes": false
+    },
+    {
+      "id": "US-02",
+      "title": "cmd_login wireado pra completar perfil + bump 0.3.0 + README + tests",
+      "description": "Estender autograde_idp/cli.py::cmd_login pra, após save_token(bundle), chamar fluxo de completar perfil. Lógica nova função local _complete_profile_if_needed(bundle, api) (ou ficar inline — escolher o que ficar legível): (1) Se NOT is_interactive() → log warn 'profile not completed (non-interactive shell)' + return; (2) try: identity = fetch_me_identity(api, bundle.id_token); except HttpError as e: print warn 'não foi possível verificar perfil (status {e.status})' + return; (3) Se identity.get('github_username') é não-vazio (já set) → não prompta, return silently; (4) Resolver nome: tenta decode_id_token_unverified(bundle.id_token).get('name', '') — se erro de decode, nome=''; (5) gh = prompt_github_username(); (6) try: post_me_profile(api, bundle.id_token, nome, gh); print 'Perfil completo: {payload}'; except HttpError as e: print stderr 'erro ao salvar perfil: HTTP {e.status} {e.text}. Re-execute `autograde login` pra retentar.' (não fail o login — exit 0). Bump pyproject.toml + autograde_idp/__init__.py 0.2.0 → 0.3.0. README.md: adicionar parágrafo curto explicando que primeiro login prompta github_username (mencionar que é one-shot e quem corrige é o prof se errar). Tests: extender tests/test_cli.py (ou novo tests/test_login.py) cobrindo cmd_login com mock de device_login + save_token + as 4 paths: já completo, prompt+sucesso, prompt mas POST falha, não-interativo.",
+      "acceptanceCriteria": [
+        "AC1: cmd_login em autograde_idp/cli.py chama _complete_profile_if_needed (ou equivalente) após save_token(bundle). Lógica não-fatal: qualquer exceção é capturada e printada sem alterar o return code 0 do login.",
+        "AC2: Caminho 'já completo' (identity['github_username'] não-vazio): NÃO prompt, NÃO POST. Test via fetch_me_identity mockado retornando dict com github_username='foo' → assert input_fn nunca chamado, assert post_me_profile nunca chamado.",
+        "AC3: Caminho 'não-interativo' (is_interactive() False): NÃO prompt, NÃO POST. Print warn no stderr 'perfil incompleto — execute autograde login num terminal interativo'. Test via monkeypatch is_interactive → False.",
+        "AC4: Caminho 'happy prompt': identity retorna github_username=''; nome do id_token decoded; prompt retorna 'foo-bar'; POST retorna {updated: ['nome','github_username'], skipped: []}. Print 'Perfil completo: nome=<x> github=foo-bar' no stdout. Test cobre.",
+        "AC5: Caminho 'POST 400': prompt OK mas post_me_profile raise HttpError(400, '{\"error\":\"invalid_github_username\"}'). Print no stderr 'erro ao salvar perfil: HTTP 400 ...' mas cmd_login retorna 0. Test cobre.",
+        "AC6: Caminho 'fetch_me_identity 5xx ou rede': captura RequestException + HttpError(5xx). Print warn + return 0 (login bem-sucedido, perfil pulado). Test cobre via fake_get raise requests.ConnectionError.",
+        "AC7: Resolução do nome via decode_id_token_unverified do bundle.id_token. Se decode falha (AuthError) ou payload sem 'name', nome=''. Backend cobre fallback. Test cobre os 2 caminhos.",
+        "AC8: pyproject.toml versão = '0.3.0'. autograde_idp/__init__.py __version__ = '0.3.0'. Validar grep + os arquivos batendo.",
+        "AC9: README.md tem novo parágrafo (4-6 linhas) na seção de instalação/uso mencionando que `autograde login` na primeira execução prompta pelo github_username, que é gravado uma vez e só o prof pode editar depois. Linkar conceitualmente com /me/profile (não precisa ser link literal).",
+        "AC10: tests/test_cli.py (ou tests/test_login.py novo) cobre os 5 caminhos de AC2-AC6 + 1 teste de versão (AC8). Cada teste monkeypatcha device_login + save_token + fetch_me_identity + post_me_profile. >=6 testes passando.",
+        "AC11: 'pytest -q' todos os testes do CLI passam (atual baseline + os novos). ruff check exit 0.",
+        "AC12: Nenhum import circular profile.py ↔ cli.py. profile.py é leaf module. cli.py importa de profile.py."
+      ],
+      "priority": 2,
+      "passes": false
+    }
+  ]
+}
