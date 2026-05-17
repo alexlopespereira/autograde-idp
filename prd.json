@@ -20,7 +20,7 @@
         "AC9: Nenhuma modificação em outros arquivos. Story isolada e aditiva."
       ],
       "priority": 1,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-02",
