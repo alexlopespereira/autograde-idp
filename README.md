@@ -97,25 +97,9 @@ Outros comandos:
 
 ```bash
 autograde whoami          # mostra usuário logado + turma
-autograde register        # auto-cadastro (se ainda não estiver no roster)
 autograde notas           # lista notas já submetidas
 autograde login           # re-autenticar
 ```
-
-### Auto-cadastro (`autograde register`)
-
-Se você ainda não está no roster e recebe `not_in_roster` ao rodar
-`autograde validar`, faça o auto-cadastro:
-
-```bash
-autograde login           # se ainda não logou
-autograde register        # escolhe turma + digita github_username
-```
-
-O comando lista as turmas disponíveis (configuradas pelo professor) e
-prompta seu username GitHub. Após cadastro, rode `autograde validar`
-normalmente. Se o professor não habilitou auto-cadastro nesta turma, o
-comando informa e você precisa contatá-lo.
 
 ---
 
