@@ -14,3 +14,11 @@ htmlcov/
 build/
 dist/
 .playwright-mcp/
+
+# Ralph Adversarial framework artifacts (added by apply-gitignore.sh)
+.DS_Store
+.claude/
+progress-*.txt
+agents-delta-*.md
+.ralph/
+.ralph-review-*/
