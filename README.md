@@ -80,6 +80,14 @@ Abre Device Code Flow no navegador. Token persistido em
 `~/.git-exercicios/token.json` (chmod 0600 em Unix). Refresh é automático;
 re-login obrigatório a cada ~5 meses.
 
+Na **primeira execução** o `autograde login` prompta pelo seu **username do
+GitHub** (sem `@`) e grava no perfil server-side junto com o nome do Google.
+É **one-shot**: depois de gravado, o próprio aluno não pode mais editar — só
+o professor corrige em caso de erro de digitação. Confirme cuidadosamente
+quando o CLI pedir `Confirmar '<gh>'? [s/N]`. Em shell não-interativo
+(CI, redirect de stdin) o prompt é pulado e o login continua normalmente;
+basta rodar `autograde login` num terminal real depois pra completar.
+
 ---
 
 ## Uso
