@@ -20,7 +20,7 @@
         "AC9: Nenhuma modificação em outros arquivos. Story isolada e aditiva."
       ],
       "priority": 1,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-02",
@@ -41,7 +41,7 @@
         "AC12: Nenhum import circular profile.py ↔ cli.py. profile.py é leaf module. cli.py importa de profile.py."
       ],
       "priority": 2,
-      "passes": false
+      "passes": true
     }
   ]
 }

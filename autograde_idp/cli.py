@@ -33,7 +33,9 @@ from autograde_idp import __version__
 from autograde_idp.auth import (
     AuthError,
     TokenAgeExceededError,
+    TokenBundle,
     TokenExpiredError,
+    decode_id_token_unverified,
     device_login,
     ensure_fresh_token,
     load_client_id,
@@ -49,6 +51,12 @@ from autograde_idp.notas import (
     api_url,
     me_identity_call,
     run_notas,
+)
+from autograde_idp.profile import (
+    fetch_me_identity,
+    is_interactive,
+    post_me_profile,
+    prompt_github_username,
 )
 from autograde_idp.validar import run_validar
 
@@ -67,6 +75,53 @@ def cmd_version(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _complete_profile_if_needed(bundle: TokenBundle, api: str) -> None:
+    """Best-effort: prompta github_username após login se ainda não estiver set.
+
+    Não falha o login — qualquer exceção HTTP/rede é logada em stderr e a função
+    retorna silenciosa. O caller (cmd_login) também envelopa em try/except
+    catch-all pra garantir que o return code do login permanece 0.
+    """
+    if not is_interactive():
+        print(
+            "perfil incompleto — execute autograde login num terminal interativo",
+            file=sys.stderr,
+        )
+        return
+    try:
+        identity = fetch_me_identity(api, bundle.id_token)
+    except requests.RequestException as exc:
+        print(
+            f"não foi possível verificar perfil (erro de rede: {exc})",
+            file=sys.stderr,
+        )
+        return
+    except NotasHttpError as exc:
+        print(
+            f"não foi possível verificar perfil (status {exc.status})",
+            file=sys.stderr,
+        )
+        return
+    if identity.get("github_username"):
+        return
+    try:
+        payload = decode_id_token_unverified(bundle.id_token)
+        nome = str(payload.get("name", "") or "")
+    except AuthError:
+        nome = ""
+    gh = prompt_github_username()
+    try:
+        post_me_profile(api, bundle.id_token, nome, gh)
+    except NotasHttpError as exc:
+        print(
+            f"erro ao salvar perfil: HTTP {exc.status} {exc.text}. "
+            "Re-execute `autograde login` pra retentar.",
+            file=sys.stderr,
+        )
+        return
+    print(f"Perfil completo: nome={nome} github={gh}")
+
+
 def cmd_login(_args: argparse.Namespace) -> int:
     client_id = load_client_id()
     try:
@@ -76,6 +131,10 @@ def cmd_login(_args: argparse.Namespace) -> int:
         return 2
     save_token(bundle)
     print(f"Login OK. Token gravado em {token_path()}")
+    try:
+        _complete_profile_if_needed(bundle, api_url())
+    except Exception as exc:
+        print(f"perfil não atualizado: {exc}", file=sys.stderr)
     return 0
 
 
