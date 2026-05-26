@@ -183,6 +183,41 @@ def test_render_bulletin_omits_id_column_even_if_payload_has_id() -> None:
     assert "?" not in out
 
 
+def test_render_bulletin_warns_when_judge_degraded() -> None:
+    out = validar.render_bulletin(
+        {
+            "criterios": [
+                {"passed": True, "points_earned": 20, "points_max": 20, "message": "fb"},
+            ],
+            "total": 20,
+            "max_total": 20,
+            "judge_degraded": True,
+        }
+    )
+    assert "PROVISÓRIA" in out
+    assert "re-corrige" in out.lower() or "re-corrige" in out
+    assert "indisponível" in out
+
+
+def test_render_bulletin_no_warning_when_judge_ok() -> None:
+    out = validar.render_bulletin(
+        {
+            "criterios": [
+                {"passed": True, "points_earned": 20, "points_max": 20, "message": "ok"},
+            ],
+            "total": 20,
+            "max_total": 20,
+            "judge_degraded": False,
+        }
+    )
+    assert "PROVISÓRIA" not in out
+    # ausência total da chave também não deve quebrar nem alertar
+    out2 = validar.render_bulletin(
+        {"criterios": [], "total": 0, "max_total": 0}
+    )
+    assert "PROVISÓRIA" not in out2
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="usa semântica fcntl.flock")
 def test_in_flight_lock_conflict_raises(tmp_path: Path) -> None:
     import fcntl
