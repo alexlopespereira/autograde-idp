@@ -150,14 +150,18 @@ def test_invalid_utf8_does_not_raise(tmp_path: Path) -> None:
     assert "# H" in r.content  # replace mode mantém o resto legível
 
 
-def test_specs_for_exercise_21_lists_all_six_artifacts() -> None:
+def test_specs_for_exercise_21_lists_all_eight_artifacts() -> None:
+    # 2.1 v0.4.0: cadeia de auditoria iterativa em B (5 arquivos), sem
+    # síntese. Total 8: A=1 + B=5 + C=2.
     specs = specs_for_exercise("2.1")
     paths = [s.path for s in specs]
     assert paths == [
         "A_meta_prompt.md",
-        "B_relatorio_assistente1.md",
-        "B_relatorio_assistente2.md",
-        "B_sintese_adversarial.md",
+        "B_relatorio_assistente_v1.md",
+        "B_relatorio_auditoria_v1.md",
+        "B_relatorio_assistente_v2.md",
+        "B_relatorio_auditoria_v2.md",
+        "B_relatorio_assistente_v3.md",
         "C_grill_transcript.md",
         "C_mapa_atores.md",
     ]
@@ -165,9 +169,11 @@ def test_specs_for_exercise_21_lists_all_six_artifacts() -> None:
     roles = [s.role for s in specs]
     assert roles == [
         "meta_prompt",
-        "report_ai_1",
-        "report_ai_2",
-        "synthesis",
+        "assistente_v1",
+        "auditoria_v1",
+        "assistente_v2",
+        "auditoria_v2",
+        "assistente_v3",
         "grill_transcript",
         "actor_map",
     ]
@@ -178,17 +184,19 @@ def test_specs_for_exercise_unknown_id_returns_empty() -> None:
     assert specs_for_exercise("9.9") == []
 
 
-def test_collect_for_exercise_21_returns_six_results_even_when_files_missing(
+def test_collect_for_exercise_21_returns_eight_results_even_when_files_missing(
     tmp_path: Path,
 ) -> None:
     results = collect_for_exercise("2.1", tmp_path)
-    assert len(results) == 6
+    assert len(results) == 8
     assert all(not r.exists for r in results)
     assert {r.role for r in results} == {
         "meta_prompt",
-        "report_ai_1",
-        "report_ai_2",
-        "synthesis",
+        "assistente_v1",
+        "auditoria_v1",
+        "assistente_v2",
+        "auditoria_v2",
+        "assistente_v3",
         "grill_transcript",
         "actor_map",
     }
@@ -196,14 +204,16 @@ def test_collect_for_exercise_21_returns_six_results_even_when_files_missing(
 
 def test_collect_for_exercise_21_happy_path(tmp_path: Path) -> None:
     _write(tmp_path, "A_meta_prompt.md", "# Meta\nprompt aqui")
-    _write(tmp_path, "B_relatorio_assistente1.md", "# R1\ncorpo")
-    _write(tmp_path, "B_relatorio_assistente2.md", "# R2\ncorpo")
-    _write(tmp_path, "B_sintese_adversarial.md", "# Sintese\ncorpo")
+    _write(tmp_path, "B_relatorio_assistente_v1.md", "# v1\ncorpo")
+    _write(tmp_path, "B_relatorio_auditoria_v1.md", "# audit_v1\ncorpo")
+    _write(tmp_path, "B_relatorio_assistente_v2.md", "# v2\ncorpo")
+    _write(tmp_path, "B_relatorio_auditoria_v2.md", "# audit_v2\ncorpo")
+    _write(tmp_path, "B_relatorio_assistente_v3.md", "# v3\ncorpo")
     _write(tmp_path, "C_grill_transcript.md", "# Grill\ncorpo")
     _write(tmp_path, "C_mapa_atores.md", "# Mapa\ncorpo")
 
     results = collect_for_exercise("2.1", tmp_path)
-    assert len(results) == 6
+    assert len(results) == 8
     assert all(r.exists for r in results)
     payload = [r.to_dict() for r in results]
     expected_keys = {

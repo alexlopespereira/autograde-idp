@@ -313,6 +313,12 @@ def render_bulletin(bulletin: dict[str, Any]) -> str:
     max_total = bulletin.get("max_total", 0)
     lines.append("")
     lines.append(f"  Total: {total}/{max_total}")
+    if bulletin.get("judge_degraded"):
+        warn = "⚠" if "utf" in (getattr(sys.stdout, "encoding", "") or "").lower() else "[!]"
+        lines.append("")
+        lines.append(f"  {warn} Avaliador automático (LLM) indisponível em ao menos um critério.")
+        lines.append("      Esses critérios receberam nota PROVISÓRIA (cheia); o professor")
+        lines.append("      re-corrige manualmente depois. Sua nota final pode mudar.")
     return "\n".join(lines)
 
 

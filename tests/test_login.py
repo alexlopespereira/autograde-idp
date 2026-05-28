@@ -324,14 +324,14 @@ def test_login_name_falls_back_to_empty_when_payload_missing_name(
 # ---------------------------------------------------------------------------
 
 
-def test_version_is_0_3_0() -> None:
-    assert __version__ == "0.3.0"
+def test_version_is_0_4_0() -> None:
+    assert __version__ == "0.4.0"
 
 
 def test_pyproject_version_matches() -> None:
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     text = pyproject.read_text(encoding="utf-8")
-    assert 'version = "0.3.0"' in text
+    assert 'version = "0.4.0"' in text
 
 
 # ---------------------------------------------------------------------------
