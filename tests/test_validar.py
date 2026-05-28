@@ -413,9 +413,9 @@ def test_run_validar_sends_artifacts_evidence_for_ex_2_1(
     (git_repo / ".autograde-exercise").write_text("2.1\n", encoding="utf-8")
     monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
 
-    # Escrever 2 dos 6 artefatos esperados — pra confirmar que o body do
-    # request reflete exatamente o estado do filesystem (3 ausentes + 2
-    # presentes + 1 ausente = 6 entries com exists variável).
+    # Escrever 2 dos 8 artefatos esperados — pra confirmar que o body do
+    # request reflete exatamente o estado do filesystem (2 presentes + 6
+    # ausentes = 8 entries com exists variável).
     (git_repo / "A_meta_prompt.md").write_text(
         "# Meta\n\nPesquisa sobre URA da Caixa.\nhttps://gov.br/x\n",
         encoding="utf-8",
@@ -470,15 +470,22 @@ def test_run_validar_sends_artifacts_evidence_for_ex_2_1(
     assert "artifacts_evidence" in submit_body
 
     artifacts = grade_body["artifacts_evidence"]
-    assert len(artifacts) == 6, f"esperado 6 artefatos, recebi {len(artifacts)}"
+    assert len(artifacts) == 8, f"esperado 8 artefatos, recebi {len(artifacts)}"
 
     by_role = {e["role"]: e for e in artifacts}
     assert by_role["meta_prompt"]["exists"] is True
     assert by_role["meta_prompt"]["word_count"] >= 5
     assert "https://gov.br/x" in by_role["meta_prompt"]["links"]
     assert by_role["actor_map"]["exists"] is True
-    # 4 ausentes
-    for role in ("report_ai_1", "report_ai_2", "synthesis", "grill_transcript"):
+    # 6 ausentes (todos os B + grill_transcript)
+    for role in (
+        "assistente_v1",
+        "auditoria_v1",
+        "assistente_v2",
+        "auditoria_v2",
+        "assistente_v3",
+        "grill_transcript",
+    ):
         assert by_role[role]["exists"] is False
         assert by_role[role]["word_count"] == 0
 

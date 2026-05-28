@@ -188,11 +188,16 @@ def specs_for_exercise(exercise_id: str) -> List[ArtifactSpec]:
     cada exercício é declarado aqui; backend tem a rubrica.
     """
     if exercise_id == "2.1":
+        # 8 arquivos: A=1, B=5 (cadeia de auditoria iterativa, sem síntese),
+        # C=2. Síntese versionada saiu — agora as iterações são arquivos
+        # separados (v1, v2, v3) e o "adversarial" vem das auditorias.
         return [
             ArtifactSpec(path="A_meta_prompt.md", role="meta_prompt"),
-            ArtifactSpec(path="B_relatorio_assistente1.md", role="report_ai_1"),
-            ArtifactSpec(path="B_relatorio_assistente2.md", role="report_ai_2"),
-            ArtifactSpec(path="B_sintese_adversarial.md", role="synthesis"),
+            ArtifactSpec(path="B_relatorio_assistente_v1.md", role="assistente_v1"),
+            ArtifactSpec(path="B_relatorio_auditoria_v1.md", role="auditoria_v1"),
+            ArtifactSpec(path="B_relatorio_assistente_v2.md", role="assistente_v2"),
+            ArtifactSpec(path="B_relatorio_auditoria_v2.md", role="auditoria_v2"),
+            ArtifactSpec(path="B_relatorio_assistente_v3.md", role="assistente_v3"),
             ArtifactSpec(path="C_grill_transcript.md", role="grill_transcript"),
             ArtifactSpec(path="C_mapa_atores.md", role="actor_map"),
         ]
