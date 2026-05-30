@@ -36,6 +36,18 @@ IN_FLIGHT_FILENAME = "in-flight.json"
 DEFAULT_API_URL = "https://autograde-backend-1065810445001.southamerica-east1.run.app"
 MARKER_FILENAME = ".autograde-exercise"
 
+# /grade-preview e /submissions rodam o grader completo: para exercícios com
+# vários judges LLM (ex.: 2.1, ~7 chamadas Gemini sequenciais sobre artefatos
+# grandes), a resposta leva facilmente 40–90s. O read timeout precisa cobrir
+# isso; o connect timeout fica curto pra falhar rápido em queda de rede real.
+# Override: AUTOGRADE_HTTP_TIMEOUT (segundos, só o read).
+HTTP_CONNECT_TIMEOUT = 10
+
+
+def _http_timeout() -> tuple[float, float]:
+    read = float(os.environ.get("AUTOGRADE_HTTP_TIMEOUT", "180"))
+    return (HTTP_CONNECT_TIMEOUT, read)
+
 
 class ValidarError(Exception):
     """Erro de validação — propagado ao CLI como exit !=0."""
@@ -339,7 +351,7 @@ def _post(api: str, path: str, token: str, body: dict[str, Any]) -> dict[str, An
         f"{api}{path}",
         json=body,
         headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
+        timeout=_http_timeout(),
     )
     if resp.status_code == 200:
         try:
