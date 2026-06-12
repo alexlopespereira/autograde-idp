@@ -230,3 +230,53 @@ def test_collect_for_exercise_when_gh_missing_keeps_first_two(gh_absent: None) -
     assert len(results) == 3
     assert all(r.exit_code == GH_NOT_FOUND_EXIT_CODE for r in results)
     assert all(r.stdout == GH_NOT_FOUND_MESSAGE for r in results)
+
+
+# ---------- exercícios 4.1 / 4.2 (execução real HTTP/MCP) ---------------------
+
+
+def test_commands_for_exercise_41_returns_four_curl_with_extracts() -> None:
+    cmds = commands_for_exercise("4.1", "https://github.com/octo/repo")
+    assert [c.extract for c in cmds] == [
+        "health",
+        "post_tarefa",
+        "get_tarefa",
+        "put_tarefa",
+    ]
+    assert all(c.tool == "shell" for c in cmds)
+    assert all(c.cmd[0] == "curl" for c in cmds)
+    joined = [" ".join(c.cmd) for c in cmds]
+    assert joined[0] == "curl -s http://localhost:8000/health"
+    assert joined[2] == "curl -s http://localhost:8000/tarefas/1"
+    assert "POST http://localhost:8000/tarefas" in joined[1]
+    assert "PUT http://localhost:8000/tarefas/1" in joined[3]
+
+
+def test_commands_for_exercise_41_post_body_matches_backend_whitelist() -> None:
+    cmds = commands_for_exercise("4.1", None)
+    post = next(c for c in cmds if c.extract == "post_tarefa")
+    assert " ".join(post.cmd) == (
+        "curl -s -X POST http://localhost:8000/tarefas "
+        "-H Content-Type: application/json "
+        '-d {"titulo":"estudar APIs"}'
+    )
+    put = next(c for c in cmds if c.extract == "put_tarefa")
+    assert " ".join(put.cmd) == (
+        "curl -s -X PUT http://localhost:8000/tarefas/1 "
+        "-H Content-Type: application/json "
+        '-d {"titulo":"estudar APIs REST","concluida":true}'
+    )
+
+
+def test_commands_for_exercise_42_returns_single_mcp_client() -> None:
+    cmds = commands_for_exercise("4.2", "https://github.com/octo/repo")
+    assert len(cmds) == 1
+    assert cmds[0].extract == "mcp_test"
+    assert cmds[0].cmd == ["python", "cliente_teste.py"]
+
+
+def test_commands_for_exercise_12_still_returns_gh() -> None:
+    cmds = commands_for_exercise("1.2", "https://github.com/octo/repo")
+    joined = [" ".join(c.cmd) for c in cmds]
+    assert "gh --version" in joined
+    assert any("gh repo view octo/repo" in j for j in joined)

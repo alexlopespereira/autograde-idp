@@ -170,6 +170,60 @@ def commands_for_exercise(
     Exercícios 1.2, 1.3 e 1.4 envolvem `gh` CLI → coletam mesma evidência
     (versão, auth, repo view).
     """
+    if exercise_id == "4.1":
+        # API REST de TODO list avaliada por execução real: inputs FIXOS (o
+        # store começa vazio → o primeiro POST cria id=1, tornando GET/PUT
+        # determinísticos). Os `extract` casam com `args.extract` no YAML 4.1.
+        base = "http://localhost:8000"
+        return [
+            ShellCommand(
+                tool="shell", cmd=["curl", "-s", f"{base}/health"], extract="health"
+            ),
+            ShellCommand(
+                tool="shell",
+                cmd=[
+                    "curl",
+                    "-s",
+                    "-X",
+                    "POST",
+                    f"{base}/tarefas",
+                    "-H",
+                    "Content-Type: application/json",
+                    "-d",
+                    '{"titulo":"estudar APIs"}',
+                ],
+                extract="post_tarefa",
+            ),
+            ShellCommand(
+                tool="shell", cmd=["curl", "-s", f"{base}/tarefas/1"], extract="get_tarefa"
+            ),
+            ShellCommand(
+                tool="shell",
+                cmd=[
+                    "curl",
+                    "-s",
+                    "-X",
+                    "PUT",
+                    f"{base}/tarefas/1",
+                    "-H",
+                    "Content-Type: application/json",
+                    "-d",
+                    '{"titulo":"estudar APIs REST","concluida":true}',
+                ],
+                extract="put_tarefa",
+            ),
+        ]
+
+    if exercise_id == "4.2":
+        # MCP server local exercitado pelo cliente de teste do aluno, rodado no
+        # cwd do repo (onde estão servidor_mcp.py e cliente_teste.py). Imprime o
+        # envelope JSON validado pelo backend (extract=mcp_test).
+        return [
+            ShellCommand(
+                tool="shell", cmd=["python", "cliente_teste.py"], extract="mcp_test"
+            ),
+        ]
+
     if exercise_id in {"1.2", "1.3", "1.4"}:
         cmds: List[ShellCommand] = [
             ShellCommand(tool="shell", cmd=["gh", "--version"], extract="gh_version"),
