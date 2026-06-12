@@ -201,6 +201,21 @@ def specs_for_exercise(exercise_id: str) -> List[ArtifactSpec]:
             ArtifactSpec(path="C_grill_transcript.md", role="grill_transcript"),
             ArtifactSpec(path="C_mapa_atores.md", role="actor_map"),
         ]
+    if exercise_id == "3.1":
+        # 9 arquivos (enunciado A/B/C/D, aula05.md §3.1): A=1 meta-prompt,
+        # B=5 (mesma cadeia de auditoria do 2.1, sobre a OPERAÇÃO do serviço),
+        # C=2 (transcript + blueprint AS-IS), D=1 (diagrama da Parte C).
+        return [
+            ArtifactSpec(path="A_meta_prompt.md", role="meta_prompt"),
+            ArtifactSpec(path="B_relatorio_assistente_v1.md", role="assistente_v1"),
+            ArtifactSpec(path="B_relatorio_auditoria_v1.md", role="auditoria_v1"),
+            ArtifactSpec(path="B_relatorio_assistente_v2.md", role="assistente_v2"),
+            ArtifactSpec(path="B_relatorio_auditoria_v2.md", role="auditoria_v2"),
+            ArtifactSpec(path="B_relatorio_assistente_v3.md", role="assistente_v3"),
+            ArtifactSpec(path="C_grill_transcript.md", role="grill_transcript"),
+            ArtifactSpec(path="C_blueprint_asis.md", role="blueprint_asis"),
+            ArtifactSpec(path="D_diagrama_asis.md", role="diagrama_asis"),
+        ]
     return []
 
 

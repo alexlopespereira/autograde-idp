@@ -179,6 +179,37 @@ def test_specs_for_exercise_21_lists_all_eight_artifacts() -> None:
     ]
 
 
+def test_specs_for_exercise_31_lists_all_nine_artifacts() -> None:
+    # 3.1 (enunciado A/B/C/D): A=1 + B=5 (cadeia de auditoria do 2.1 sobre a
+    # operação) + C=2 (transcript + blueprint AS-IS) + D=1 (diagrama). Total 9.
+    specs = specs_for_exercise("3.1")
+    paths = [s.path for s in specs]
+    assert paths == [
+        "A_meta_prompt.md",
+        "B_relatorio_assistente_v1.md",
+        "B_relatorio_auditoria_v1.md",
+        "B_relatorio_assistente_v2.md",
+        "B_relatorio_auditoria_v2.md",
+        "B_relatorio_assistente_v3.md",
+        "C_grill_transcript.md",
+        "C_blueprint_asis.md",
+        "D_diagrama_asis.md",
+    ]
+    assert all(s.required for s in specs)
+    roles = [s.role for s in specs]
+    assert roles == [
+        "meta_prompt",
+        "assistente_v1",
+        "auditoria_v1",
+        "assistente_v2",
+        "auditoria_v2",
+        "assistente_v3",
+        "grill_transcript",
+        "blueprint_asis",
+        "diagrama_asis",
+    ]
+
+
 def test_specs_for_exercise_unknown_id_returns_empty() -> None:
     assert specs_for_exercise("1.1") == []
     assert specs_for_exercise("9.9") == []
