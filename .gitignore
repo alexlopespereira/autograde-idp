@@ -22,3 +22,6 @@ progress-*.txt
 agents-delta-*.md
 .ralph/
 .ralph-review-*/
+
+# clone do backend aninhado por acidente — não versionar aqui
+autograde-idp-backend/
