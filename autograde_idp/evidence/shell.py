@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from autograde_idp.curso import CURSO_DEFAULT, qualify_exercise_id
+
 STDOUT_MAX_CHARS = 4096
 DEFAULT_TIMEOUT_SECONDS = 15
 GH_NOT_FOUND_MESSAGE = "gh not found in PATH"
@@ -162,13 +164,27 @@ def collect_shell_evidence(
     return [_run_one(c, timeout=timeout) for c in commands]
 
 
+# Ids que coletam a evidência básica de `gh` (versão, auth, repo view).
+# Registrados QUALIFICADOS por curso — `1.2` (td, legado sem prefixo) e
+# `ia-1.2` — e não por id base. Explícito de propósito: um `ia-4.1` futuro
+# com conteúdo próprio não pode herdar por acidente a evidência do `4.1` de
+# TD (que roda curl contra localhost).
+_GH_BASIC_IDS = frozenset(
+    qualify_exercise_id(curso, base)
+    for curso in (CURSO_DEFAULT, "ia")
+    for base in ("1.2", "1.3", "1.4")
+)
+
+
 def commands_for_exercise(
     exercise_id: str, repo_url: Optional[str]
 ) -> List[ShellCommand]:
     """Lista hardcoded de comandos relevantes para cada exercício.
 
-    Exercícios 1.2, 1.3 e 1.4 envolvem `gh` CLI → coletam mesma evidência
-    (versão, auth, repo view).
+    Exercícios 1.2, 1.3 e 1.4 (dos dois cursos) envolvem `gh` CLI → coletam
+    mesma evidência (versão, auth, repo view). Espelha
+    ``app/evidence/shell.py:_WHITELIST`` no backend: comando coletado aqui que
+    não esteja lá é rejeitado na submissão.
     """
     if exercise_id == "4.1":
         # API REST de TODO list avaliada por execução real: inputs FIXOS (o
@@ -224,7 +240,7 @@ def commands_for_exercise(
             ),
         ]
 
-    if exercise_id in {"1.2", "1.3", "1.4"}:
+    if exercise_id in _GH_BASIC_IDS:
         cmds: List[ShellCommand] = [
             ShellCommand(tool="shell", cmd=["gh", "--version"], extract="gh_version"),
             ShellCommand(tool="shell", cmd=["gh", "auth", "status"], extract="gh_auth"),

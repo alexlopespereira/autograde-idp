@@ -12,6 +12,7 @@ Cobre os 5 caminhos:
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 from typing import Any
 
@@ -324,14 +325,17 @@ def test_login_name_falls_back_to_empty_when_payload_missing_name(
 # ---------------------------------------------------------------------------
 
 
-def test_version_is_0_5_0() -> None:
-    assert __version__ == "0.5.0"
+def test_version_is_semver() -> None:
+    # Sem literal: o teste antigo cravava a versão e apodrecia a cada bump.
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__), __version__
 
 
 def test_pyproject_version_matches() -> None:
+    # O que importa é __init__ e pyproject NÃO divergirem — a versão vai no
+    # header X-Client-Version de toda submissão.
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     text = pyproject.read_text(encoding="utf-8")
-    assert 'version = "0.5.0"' in text
+    assert f'version = "{__version__}"' in text
 
 
 # ---------------------------------------------------------------------------

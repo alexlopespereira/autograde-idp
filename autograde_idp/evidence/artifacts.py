@@ -186,6 +186,10 @@ def specs_for_exercise(exercise_id: str) -> List[ArtifactSpec]:
 
     Mantém o mesmo padrão de ``commands_for_exercise`` em ``shell.py`` —
     cada exercício é declarado aqui; backend tem a rubrica.
+
+    Ids são QUALIFICADOS por curso (``2.1`` = Transformação Digital, legado
+    sem prefixo; ``ia-2.1`` seria o de Agentes de IA). Um id de outro curso
+    cai no ``return []`` — nunca herda os artefatos de TD por acidente.
     """
     if exercise_id == "2.1":
         # 8 arquivos: A=1, B=5 (cadeia de auditoria iterativa, sem síntese),

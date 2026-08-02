@@ -103,7 +103,7 @@ def discover_exercise_id(cwd: Optional[Path] = None) -> str:
             return eid
     raise ValidarError(
         "Não foi possível detectar o exercício automaticamente. "
-        "Informe o id (ex: `autograde validar 1.1`)."
+        "Informe o id (ex: `autograde validar 1.1` ou `autograde validar ia-1.1`)."
     )
 
 

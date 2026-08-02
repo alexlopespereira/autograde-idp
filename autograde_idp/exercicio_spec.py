@@ -1,4 +1,4 @@
-"""Fetch + parse do YAML do exercício a partir do raw GitHub do idp_governodigital.
+"""Fetch + parse do YAML do exercício a partir do raw GitHub do repo do curso.
 
 YAML é a fonte única de verdade — backend o consome para validar/grader, CLI
 o consome para descobrir quais artefatos coletar e quais comandos shell rodar.
@@ -8,25 +8,33 @@ dois lados.
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Callable, Dict
 
 import requests
 import yaml
 
-DEFAULT_EXERCISES_BASE_URL = (
-    "https://raw.githubusercontent.com/alexlopespereira/idp_governodigital/main/exercicios"
+from autograde_idp.curso import (
+    CURSO_DEFAULT,
+    DEFAULT_BASE_URLS,
+    curso_of,
 )
+from autograde_idp.curso import exercises_base_url as curso_exercises_base_url
+
+DEFAULT_EXERCISES_BASE_URL = DEFAULT_BASE_URLS[CURSO_DEFAULT]
 
 
 class ExercicioSpecError(Exception):
     """YAML do exercício não encontrado, malformado, ou rede caiu."""
 
 
-def exercises_base_url() -> str:
-    return os.environ.get(
-        "AUTOGRADE_EXERCISES_BASE_URL", DEFAULT_EXERCISES_BASE_URL
-    ).rstrip("/")
+def exercises_base_url(exercise_id: str = "") -> str:
+    """Base URL dos YAMLs do curso a que ``exercise_id`` pertence.
+
+    Sem argumento devolve a base do curso legado (``td``) — compatível com os
+    chamadores anteriores ao suporte multi-curso.
+    """
+    curso = curso_of(exercise_id) if exercise_id else CURSO_DEFAULT
+    return curso_exercises_base_url(curso)
 
 
 def _http_fetcher(url: str) -> str:
@@ -45,7 +53,7 @@ def fetch_exercise_spec(
     Levanta ``ExercicioSpecError`` para qualquer falha (rede, 404, YAML
     malformado) para o CLI mostrar mensagem clara ao aluno.
     """
-    url = f"{exercises_base_url()}/{exercise_id}.yaml"
+    url = f"{exercises_base_url(exercise_id)}/{exercise_id}.yaml"
     try:
         text = fetcher(url)
     except requests.RequestException as exc:

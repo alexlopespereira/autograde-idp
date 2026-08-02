@@ -4,7 +4,7 @@ Subcomandos:
 - autograde --version
 - autograde login
 - autograde whoami
-- autograde validar [exercicio_id] [--auto-submit]
+- autograde validar [exercicio_id] [--auto-submit]   # ex: 1.1 (TD) | ia-1.1 (Agentes de IA)
 - autograde notas
 """
 
@@ -209,7 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
         "exercicio_id",
         nargs="?",
         default=None,
-        help="id do exercício (ex: 1.1); se omitido tenta detectar",
+        help="id do exercício (ex: 1.1 ou ia-1.1); se omitido tenta detectar",
     )
     val.add_argument(
         "--auto-submit",

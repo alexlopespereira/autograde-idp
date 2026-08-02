@@ -95,11 +95,24 @@ basta rodar `autograde login` num terminal real depois pra completar.
 Dentro do diretório do repo do exercício (precisa ter `remote origin`):
 
 ```bash
-autograde validar 1.2
+autograde validar 1.2       # Transformação Digital
+autograde validar ia-1.2    # Agentes de IA
 ```
 
 A CLI mostra o boletim e pergunta `Deseja submeter? (s/n)`. Use
 `--auto-submit` para pular o prompt em scripts.
+
+### Id do exercício e curso
+
+O id carrega o curso como prefixo. Sem prefixo (`1.2`) é Transformação
+Digital; `ia-1.2` é Agentes de IA. Os dois cursos têm exercícios numerados
+`1.x`, então o prefixo é o que mantém as notas separadas — use exatamente o id
+que o enunciado do seu curso indica.
+
+O CLI já sabe de qual repositório baixar a spec de cada curso
+(`autograde_idp/curso.py`), sem configuração. Para apontar pra um fork ou
+branch de teste: `AUTOGRADE_EXERCISES_BASE_URL_IA` (um curso) ou
+`AUTOGRADE_EXERCISES_BASE_URL` (todos).
 
 Outros comandos:
 
