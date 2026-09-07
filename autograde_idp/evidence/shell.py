@@ -118,6 +118,11 @@ def _run_one(command: ShellCommand, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> C
             text=True,
             timeout=timeout,
             shell=False,
+            # Ver doctor._run: sem encoding explícito a saída do `gh` no
+            # Windows vira mojibake — e essa saída é a evidência enviada ao
+            # backend.
+            encoding="utf-8",
+            errors="replace",
         )
         raw_stdout = proc.stdout or ""
         if proc.stderr:

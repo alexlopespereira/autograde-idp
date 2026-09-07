@@ -323,7 +323,7 @@ def test_cmd_whoami_sends_id_token_not_access_token(
     assert sent["token"] != cli_with_fresh_token.access_token
 
 
-def test_cmd_whoami_backend_4xx_returns_1(
+def test_cmd_whoami_backend_4xx_explica_e_retorna_2(
     monkeypatch: pytest.MonkeyPatch,
     cli_with_fresh_token: TokenBundle,
     capsys: pytest.CaptureFixture[str],
@@ -336,8 +336,12 @@ def test_cmd_whoami_backend_4xx_returns_1(
     monkeypatch.setattr(cli, "me_identity_call", boom)
     rc = cli.main(["whoami"])
     err = capsys.readouterr().err
-    assert rc == 1
+    # 403 é problema de cadastro do aluno (não infra) → mesmo exit code das
+    # demais falhas acionáveis por ele.
+    assert rc == 2
     assert "403" in err
+    assert "não está na planilha da turma" in err
+    assert "autograde login" in err
     assert "not_in_roster" in err
 
 

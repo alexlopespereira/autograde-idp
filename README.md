@@ -83,10 +83,32 @@ re-login obrigatório a cada ~5 meses.
 Na **primeira execução** o `autograde login` prompta pelo seu **username do
 GitHub** (sem `@`) e grava no perfil server-side junto com o nome do Google.
 É **one-shot**: depois de gravado, o próprio aluno não pode mais editar — só
-o professor corrige em caso de erro de digitação. Confirme cuidadosamente
-quando o CLI pedir `Confirmar '<gh>'? [s/N]`. Em shell não-interativo
-(CI, redirect de stdin) o prompt é pulado e o login continua normalmente;
-basta rodar `autograde login` num terminal real depois pra completar.
+o professor corrige em caso de erro de digitação (a planilha recusa
+sobrescrever célula preenchida, o que impede um aluno cravar o username de
+outro). Confirme cuidadosamente quando o CLI pedir `Confirmar '<gh>'? [s/N]`.
+
+Em shell não-interativo (CI, redirect de stdin) o prompt é pulado e o login
+continua normalmente. Para conferir ou completar depois:
+
+```bash
+autograde perfil
+```
+
+---
+
+## Antes de tudo: `autograde doctor`
+
+```bash
+autograde doctor
+```
+
+Checa numa passada só Python, git, identidade do git, `gh`, `gh auth`, sessão
+do autograde, email/turma no roster e — se você estiver dentro de um repo — se
+ele é seu e se está público. Cada item que falha vem com o comando exato que
+conserta. Exit code 1 se houver qualquer falha.
+
+Travou em alguma mensagem de erro? A **[FAQ](docs/FAQ.md)** é organizada pelo
+texto que aparece na tela.
 
 ---
 
@@ -117,10 +139,19 @@ branch de teste: `AUTOGRADE_EXERCISES_BASE_URL_IA` (um curso) ou
 Outros comandos:
 
 ```bash
-autograde whoami          # mostra usuário logado + turma
+autograde doctor          # diagnóstico do ambiente (comece por aqui)
+autograde whoami          # email, turma(s) e username do GitHub
+autograde perfil          # ver/completar o cadastro no roster
 autograde notas           # lista notas já submetidas
 autograde login           # re-autenticar
 ```
+
+### Aluno em mais de uma turma
+
+A coluna `turma` do roster aceita várias turmas separadas por `;` — ex.:
+`TD-2026-01;IA-2026-02`. Quem cursa as duas disciplinas usa **uma** linha só e
+valida exercícios dos dois cursos. Cada submissão é gravada com a turma do
+exercício, então os relatórios por turma continuam separados.
 
 ---
 
