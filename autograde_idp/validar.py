@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator, Optional
 
 import requests
 
+from autograde_idp import erros
 from autograde_idp.auth import (
     AuthError,
     TokenAgeExceededError,
@@ -30,7 +31,11 @@ from autograde_idp.auth import (
     load_token,
 )
 from autograde_idp.evidence import artifacts as artifacts_mod
-from autograde_idp.evidence.shell import collect_for_exercise
+from autograde_idp.evidence.shell import (
+    GH_NOT_FOUND_MESSAGE,
+    collect_for_exercise,
+    commands_for_exercise,
+)
 
 IN_FLIGHT_FILENAME = "in-flight.json"
 DEFAULT_API_URL = "https://autograde-backend-1065810445001.southamerica-east1.run.app"
@@ -370,6 +375,39 @@ def submissions_call(api: str, token: str, body: dict[str, Any]) -> dict[str, An
     return _post(api, "/submissions", token, body)
 
 
+def _avisar_gh_ausente(
+    exercise_id: str,
+    shell_results: list[Any],
+    print_fn: Callable[[str], None],
+) -> None:
+    """Avisa ANTES do boletim que `gh` não está instalado.
+
+    Sem isso o aluno recebe um boletim com 40 pontos zerados e uma mensagem
+    técnica (`gh not found in PATH`) dentro de um critério, sem saber que o
+    conserto é instalar uma ferramenta.
+    """
+    if not any(c.cmd and c.cmd[0] == "gh" for c in commands_for_exercise(exercise_id, None)):
+        return
+    if not any(GH_NOT_FOUND_MESSAGE in (r.stdout or "") for r in shell_results):
+        return
+    print_fn(
+        erros.dica(
+            "\n  ".join(
+                [
+                    "O `gh` (GitHub CLI) não está instalado ou não está no PATH.",
+                    f"Este exercício ({exercise_id}) tem critérios `gh_*` que "
+                    "vão zerar sem ele.",
+                    "Instale e rode de novo:",
+                    "  Windows: winget install --id GitHub.cli",
+                    "  macOS:   brew install gh",
+                    "  Linux:   https://cli.github.com",
+                    "Depois: gh auth login  (e abra um terminal NOVO)",
+                ]
+            )
+        )
+    )
+
+
 def _load_fresh_bundle() -> TokenBundle:
     bundle = load_token()
     if bundle is None:
@@ -395,8 +433,8 @@ def run_validar(
 
     try:
         repo_url = detect_repo_url(cwd)
-    except ValidarError as exc:
-        err_print(f"erro: {exc}")
+    except ValidarError:
+        err_print(erros.explicar_sem_repo(exercise_id))
         return 2
 
     if not exercise_id:
@@ -408,11 +446,29 @@ def run_validar(
 
     conflict_ex = detect_repo_mismatch(exercise_id, repo_url)
     if conflict_ex is not None:
+        # O aviso antigo só dizia "certifique-se de estar no diretório certo",
+        # sem dizer como se certificar nem que continuar pode estar correto.
         print_fn(
-            f"\n⚠️  Aviso: este repo ({repo_url}) foi usado anteriormente "
-            f"para o exercício {conflict_ex}.\n"
-            f"   Você está rodando `autograde validar {exercise_id}` — "
-            f"certifique-se de estar no diretório certo.\n"
+            erros.dica(
+                "\n  ".join(
+                    [
+                        f"Você já submeteu o exercício {conflict_ex} com este "
+                        "mesmo repositório:",
+                        f"    {repo_url}",
+                        "",
+                        f"e agora está validando {exercise_id}. Cada exercício "
+                        "tem o seu repositório —",
+                        "se você esqueceu de trocar de diretório, a nota vai "
+                        "para o lugar errado.",
+                        "",
+                        "Para conferir em qual repo você está:",
+                        "    git config --get remote.origin.url",
+                        "",
+                        f"Se esse repo é mesmo o do {exercise_id}, responda `s` "
+                        "sem problema.",
+                    ]
+                )
+            )
         )
         if not auto_submit:
             try:
@@ -422,7 +478,10 @@ def run_validar(
             except EOFError:
                 confirm = "n"
             if confirm != "s":
-                print_fn("Cancelado. Mude pro diretório certo e rode novamente.")
+                print_fn(
+                    "Cancelado — nada foi enviado. Entre no diretório certo "
+                    "e rode de novo."
+                )
                 return 2
 
     try:
@@ -447,6 +506,7 @@ def run_validar(
     api = api_url()
     shell_results = collect_for_exercise(exercise_id, repo_url)
     shell_evidence = [r.to_dict() for r in shell_results]
+    _avisar_gh_ausente(exercise_id, shell_results, print_fn)
     artifact_results = artifacts_mod.collect_for_exercise(
         exercise_id, cwd if cwd is not None else Path.cwd()
     )
@@ -460,10 +520,10 @@ def run_validar(
     try:
         preview = grade_preview_call(api, bundle.id_token, body)
     except requests.RequestException as exc:
-        err_print(f"erro de rede em /grade-preview: {exc}")
+        err_print(erros.explicar_rede(exc, acao="Validar o exercício"))
         return 3
     except HttpError as exc:
-        err_print(f"/grade-preview falhou: HTTP {exc.status} {exc.text}")
+        err_print(erros.explicar_http(exc.status, exc.text, acao="Validar o exercício"))
         return 3
     except ValidarError as exc:
         err_print(f"erro: {exc}")
@@ -485,16 +545,12 @@ def run_validar(
         try:
             preview = grade_preview_call(api, bundle.id_token, dict(body, respostas=respostas))
         except requests.RequestException as exc:
-            err_print(f"erro de rede em /grade-preview: {exc}")
+            err_print(erros.explicar_rede(exc, acao="Validar o exercício"))
             return 3
         except HttpError as exc:
-            if exc.status == 429:
-                err_print(
-                    f"limite de previews atingido (HTTP 429): {exc.text}. "
-                    "Aguarde cooldown ou volte amanhã (reset à meia-noite BRT)."
-                )
-                return 3
-            err_print(f"/grade-preview falhou: HTTP {exc.status} {exc.text}")
+            err_print(
+                erros.explicar_http(exc.status, exc.text, acao="Validar o exercício")
+            )
             return 3
 
     print_fn(render_preview(preview))
@@ -517,26 +573,26 @@ def run_validar(
     try:
         result = submissions_call(api, bundle.id_token, submit_body)
     except requests.RequestException as exc:
+        err_print(erros.explicar_rede(exc, acao="Submeter a nota"))
         err_print(
-            f"erro de rede em /submissions: {exc}. UUID preservado em "
-            f"{path}; rode `autograde validar` novamente para retry."
+            f"  Sua tentativa foi preservada em {path} — rodar "
+            f"`autograde validar {exercise_id}` de novo NÃO duplica a linha."
         )
         return 3
     except HttpError as exc:
-        if exc.status == 429:
-            err_print(
-                f"limite atingido (HTTP 429): {exc.text}. UUID preservado para "
-                f"retry depois do cooldown/janela diária."
-            )
-            return 3
-        if 400 <= exc.status < 500:
+        # 4xx (menos 429) é definitivo: descarta o uuid pra próxima tentativa
+        # começar limpa. 429/5xx são transitórios — preserva pro retry.
+        if 400 <= exc.status < 500 and exc.status != 429:
             try:
                 clear_uuid(path, exercise_id)
             except InFlightLockedError:
                 pass
-            err_print(f"/submissions rejeitou: HTTP {exc.status} {exc.text}")
-            return 3
-        err_print(f"/submissions falhou (HTTP {exc.status}). UUID preservado para retry.")
+        err_print(erros.explicar_http(exc.status, exc.text, acao="Submeter a nota"))
+        if exc.status == 429 or exc.status >= 500:
+            err_print(
+                f"  Sua tentativa foi preservada em {path} — rodar "
+                f"`autograde validar {exercise_id}` de novo NÃO duplica a linha."
+            )
         return 3
     except ValidarError as exc:
         err_print(f"erro: {exc}")

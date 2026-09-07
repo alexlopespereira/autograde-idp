@@ -536,7 +536,9 @@ def test_run_validar_exits_2_when_not_a_git_repo(
         in_flight=in_flight,
     )
     assert rc == 2
-    assert "remote origin" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "não está no diretório do repositório" in err
+    assert "git config --get remote.origin.url" in err
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="usa semântica fcntl.flock")

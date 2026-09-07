@@ -136,17 +136,17 @@ def run_notas(
     try:
         payload = me_grades_call(api, bundle.id_token)
     except requests.RequestException as exc:
-        err_print(f"erro de rede em /me/grades: {exc}")
+        from autograde_idp import erros
+
+        err_print(erros.explicar_rede(exc, acao="Buscar suas notas"))
         return 3
     except HttpError as exc:
+        from autograde_idp import erros
+
+        err_print(erros.explicar_http(exc.status, exc.text, acao="Buscar suas notas"))
         if exc.status >= 500:
-            err_print(f"/me/grades falhou: HTTP {exc.status} {exc.text}")
             return 3
-        if exc.status == 401:
-            err_print(f"token inválido: HTTP {exc.status} {exc.text}")
-            return 2
-        err_print(f"/me/grades rejeitou: HTTP {exc.status} {exc.text}")
-        return 1
+        return 2 if exc.status == 401 else 1
     except NotasError as exc:
         err_print(f"erro: {exc}")
         return 3

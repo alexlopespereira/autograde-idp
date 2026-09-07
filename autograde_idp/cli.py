@@ -6,6 +6,8 @@ Subcomandos:
 - autograde whoami
 - autograde validar [exercicio_id] [--auto-submit]   # ex: 1.1 (TD) | ia-1.1 (Agentes de IA)
 - autograde notas
+- autograde doctor
+- autograde perfil
 """
 
 from __future__ import annotations
@@ -27,9 +29,25 @@ warnings.filterwarnings(
     category=Warning,
 )
 
+
+def _tolerar_console_legado() -> None:
+    """Impede UnicodeEncodeError no console padrão do Windows (cp1252).
+
+    Os símbolos "bonitos" já degradam para ASCII via ``erros.sym``, mas texto
+    do backend (ou do próprio GitHub) pode trazer qualquer caractere. Um
+    crash de encoding no meio de uma mensagem de erro deixaria o aluno sem a
+    informação exatamente quando ela mais importa — melhor um '?' no lugar do
+    caractere do que um traceback no lugar da mensagem.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
+            pass
+
 import requests
 
-from autograde_idp import __version__
+from autograde_idp import __version__, erros
 from autograde_idp.auth import (
     AuthError,
     TokenAgeExceededError,
@@ -44,6 +62,7 @@ from autograde_idp.auth import (
     token_age_days,
     token_path,
 )
+from autograde_idp.doctor import run_doctor
 from autograde_idp.notas import (
     HttpError as NotasHttpError,
 )
@@ -57,6 +76,7 @@ from autograde_idp.profile import (
     is_interactive,
     post_me_profile,
     prompt_github_username,
+    run_perfil,
 )
 from autograde_idp.validar import run_validar
 
@@ -84,7 +104,10 @@ def _complete_profile_if_needed(bundle: TokenBundle, api: str) -> None:
     """
     if not is_interactive():
         print(
-            "perfil incompleto — execute autograde login num terminal interativo",
+            "perfil incompleto (falta seu username do GitHub) e este terminal "
+            "não é interativo. Rode `autograde perfil` num terminal normal — "
+            "sem isso o autograder não consegue confirmar que o repositório do "
+            "exercício é seu.",
             file=sys.stderr,
         )
         return
@@ -161,24 +184,25 @@ def cmd_whoami(_args: argparse.Namespace) -> int:
     try:
         identity = me_identity_call(api_url(), bundle.id_token)
     except requests.RequestException as exc:
-        print(f"erro de rede em /me/identity: {exc}", file=sys.stderr)
+        print(erros.explicar_rede(exc, acao="Identificar você"), file=sys.stderr)
         return 3
     except NotasHttpError as exc:
-        if exc.status == 401:
-            print(f"token inválido: HTTP {exc.status} {exc.text}", file=sys.stderr)
-            return 2
-        if exc.status >= 500:
-            print(f"/me/identity falhou: HTTP {exc.status} {exc.text}", file=sys.stderr)
-            return 3
-        print(f"/me/identity rejeitou: HTTP {exc.status} {exc.text}", file=sys.stderr)
-        return 1
+        print(
+            erros.explicar_http(exc.status, exc.text, acao="Identificar você"),
+            file=sys.stderr,
+        )
+        return 2 if exc.status in (401, 403) else 3
     email = identity.get("email", "?")
     name = identity.get("nome", "?")
-    turma = identity.get("turma", "?")
+    # `turmas` (lista) é o campo novo; `turma` continua vindo para não quebrar
+    # CLI antiga contra backend novo — e vice-versa.
+    turmas = identity.get("turmas") or [identity.get("turma", "?")]
+    gh_user = identity.get("github_username", "")
     age = token_age_days(bundle)
     print(f"email: {email}")
     print(f"name : {name}")
-    print(f"turma: {turma}")
+    print(f"turma: {', '.join(str(t) for t in turmas)}")
+    print(f"github: {gh_user or '(não cadastrado)'}")
     print(f"token_age_days: {age}")
     return 0
 
@@ -192,6 +216,14 @@ def cmd_validar(args: argparse.Namespace) -> int:
 
 def cmd_notas(_args: argparse.Namespace) -> int:
     return run_notas()
+
+
+def cmd_doctor(_args: argparse.Namespace) -> int:
+    return run_doctor()
+
+
+def cmd_perfil(_args: argparse.Namespace) -> int:
+    return run_perfil()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -217,11 +249,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="pula o prompt s/n e submete automaticamente (uso CI/tests)",
     )
     sub.add_parser("notas", help="lista histórico de notas do aluno")
+    sub.add_parser(
+        "perfil",
+        help="mostra seu cadastro (email, turma, github) e completa o que faltar",
+    )
+    sub.add_parser(
+        "doctor",
+        help="checa pré-requisitos (python, git, gh, login, turma, repo) e diz como consertar",
+    )
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
+    _tolerar_console_legado()
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     if args.version or args.command == "version":
         return cmd_version(args)
@@ -233,6 +274,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_validar(args)
     if args.command == "notas":
         return cmd_notas(args)
+    if args.command == "doctor":
+        return cmd_doctor(args)
+    if args.command == "perfil":
+        return cmd_perfil(args)
     parser.print_help()
     return 0
 
