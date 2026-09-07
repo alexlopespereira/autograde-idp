@@ -149,7 +149,7 @@ autograde login           # re-autenticar
 ### Aluno em mais de uma turma
 
 A coluna `turma` do roster aceita várias turmas separadas por `;` — ex.:
-`TD-2026-01;IA-2026-02`. Quem cursa as duas disciplinas usa **uma** linha só e
+`TD-2026-01;IA-2026-01`. Quem cursa as duas disciplinas usa **uma** linha só e
 valida exercícios dos dois cursos. Cada submissão é gravada com a turma do
 exercício, então os relatórios por turma continuam separados.
 

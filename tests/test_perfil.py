@@ -39,7 +39,7 @@ def _set_identity(**kw):
         {
             "email": "ana@aluno.idp.edu.br",
             "nome": "Ana Silva",
-            "turmas": ["TD-2026-01", "IA-2026-02"],
+            "turmas": ["TD-2026-01", "IA-2026-01"],
             "github_username": "",
             **kw,
         }
@@ -52,7 +52,7 @@ def test_perfil_mostra_todas_as_turmas(token, monkeypatch):
     rc = profile.run_perfil(print_fn=out.append)
     assert rc == 0
     texto = "\n".join(out)
-    assert "TD-2026-01, IA-2026-02" in texto
+    assert "TD-2026-01, IA-2026-01" in texto
     assert "anasilva" in texto
 
 

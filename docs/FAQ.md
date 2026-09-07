@@ -63,7 +63,7 @@ devolve exatamente o mesmo erro.
 
    ```yaml
    turmas:
-     - IA-2026-02
+     - IA-2026-01
    ```
 
 3. **Se você digitou o id errado**: os dois cursos têm exercícios com o mesmo
@@ -79,11 +79,16 @@ Não. A coluna `turma` aceita **mais de uma turma**, separadas por `;`:
 
 | email | nome | turma | github_username |
 |---|---|---|---|
-| ana@aluno.idp.edu.br | Ana Silva | `TD-2026-01;IA-2026-02` | anasilva |
+| ana@aluno.idp.edu.br | Ana Silva | `TD-2026-01;IA-2026-01` | anasilva |
 
 Com isso a mesma conta valida exercícios dos dois cursos. Cada submissão é
 gravada na planilha com a turma **do exercício** — os relatórios por turma
 continuam separados. (`,` e `\|` também funcionam como separador.)
+
+**Por que aparecem duas turmas se é a mesma sala?** Em 2026/1, `TD-2026-01` e
+`IA-2026-01` são a mesma sala de alunos, cursando duas disciplinas diferentes.
+O nome da turma identifica **disciplina + turma**, não a sala — por isso são
+dois rótulos para as mesmas pessoas, e por isso a sua linha traz os dois.
 
 ---
 

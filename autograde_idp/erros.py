@@ -72,7 +72,7 @@ REGISTRY: dict[str, Explicacao] = {
             "Rode `autograde whoami` e confira a linha `turma`.",
             "Se a turma estiver errada (ou faltar uma), peça ao professor para "
             "corrigir a coluna `turma` da sua linha. Ela aceita mais de uma "
-            "turma separada por `;` — ex.: `TD-2026-01;IA-2026-02`.",
+            "turma separada por `;` — ex.: `TD-2026-01;IA-2026-01`.",
             "Se a turma está certa, você provavelmente digitou o id de outro "
             "curso: `ia-1.3` (Agentes de IA) e `1.3` (Transformação Digital) "
             "são exercícios diferentes.",

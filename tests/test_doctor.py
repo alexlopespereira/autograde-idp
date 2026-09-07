@@ -64,13 +64,13 @@ def test_check_roster_usa_turmas_plural(monkeypatch):
     checks = doctor.check_roster(
         {
             "email": "ana@idp.edu.br",
-            "turmas": ["TD-2026-01", "IA-2026-02"],
+            "turmas": ["TD-2026-01", "IA-2026-01"],
             "github_username": "ana",
         }
     )
     turma_check = next(c for c in checks if c.nome == "turma(s)")
     assert turma_check.status == OK
-    assert "TD-2026-01, IA-2026-02" == turma_check.detalhe
+    assert "TD-2026-01, IA-2026-01" == turma_check.detalhe
 
 
 def test_check_roster_cai_para_turma_singular_em_backend_antigo():
