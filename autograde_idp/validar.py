@@ -363,8 +363,7 @@ def _post(api: str, path: str, token: str, body: dict[str, Any]) -> dict[str, An
             return resp.json()
         except ValueError as exc:
             raise ValidarError(f"resposta inválida de {path}: {exc}") from exc
-    text = (resp.text or "")[:500]
-    raise HttpError(resp.status_code, text)
+    raise HttpError(resp.status_code, erros.truncar_corpo(resp.text or ""))
 
 
 def grade_preview_call(api: str, token: str, body: dict[str, Any]) -> dict[str, Any]:

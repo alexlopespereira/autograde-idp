@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 
 import requests
 
+from autograde_idp import erros
 from autograde_idp.notas import HttpError
 
 # Regex v3 — IDÊNTICA à do backend app/endpoints.py:132 (PR #12).
@@ -39,7 +40,7 @@ def fetch_me_identity(api: str, id_token: str) -> dict[str, Any]:
     )
     if resp.status_code == 200:
         return resp.json()
-    raise HttpError(resp.status_code, (resp.text or "")[:500])
+    raise HttpError(resp.status_code, erros.truncar_corpo(resp.text or ""))
 
 
 def post_me_profile(
@@ -54,7 +55,7 @@ def post_me_profile(
     )
     if resp.status_code == 200:
         return resp.json()
-    raise HttpError(resp.status_code, (resp.text or "")[:500])
+    raise HttpError(resp.status_code, erros.truncar_corpo(resp.text or ""))
 
 
 def prompt_github_username(
