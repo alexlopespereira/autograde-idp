@@ -12,6 +12,7 @@ isso: título em português, passos concretos, e link de FAQ.
 from __future__ import annotations
 
 import io
+import json
 
 import pytest
 
@@ -112,3 +113,46 @@ def test_simbolos_degradam_para_ascii_no_console_do_windows(monkeypatch):
 
     monkeypatch.setattr("sys.stdout", _StdoutUtf8())
     assert "✗" in erros.explicar_http(403, '{"error":"turma_not_eligible"}')
+
+
+# --- truncamento do corpo (regressão real) -----------------------------------
+
+
+def test_corpo_json_longo_nao_e_truncado_a_ponto_de_quebrar_o_parse():
+    """Regressão: `[:500]` cortava a mensagem acionável e matava a explicação.
+
+    Enquanto o backend devolvia só `{"error":"turma_not_eligible"}` (32 bytes),
+    cortar em 500 era inofensivo. Quando `message` passou a trazer o roteiro
+    completo, o corpo estourou 500, o JSON truncado deixou de parsear, o código
+    do erro sumiu e a explicação caía no genérico "o backend recusou a
+    permissão" — justamente nos erros de mensagem mais longa, que são os que
+    mais precisam de explicação.
+    """
+    message = "Voce esta matriculado em: TD-2026-01. " + ("blá " * 200)
+    corpo = json.dumps({"error": "turma_not_eligible", "message": message})
+    assert len(corpo) > erros.LIMITE_CORPO_OPACO
+
+    codigo, msg = erros.parse_error_body(erros.truncar_corpo(corpo))
+    assert codigo == "turma_not_eligible"
+    assert msg.startswith("Voce esta matriculado em: TD-2026-01.")
+
+
+def test_corpo_opaco_longo_continua_truncado():
+    """Página HTML de proxy não vira despejo de 8000 chars na tela do aluno."""
+    html = "<html>" + ("x" * 5000) + "</html>"
+    assert len(erros.truncar_corpo(html)) == erros.LIMITE_CORPO_OPACO
+
+
+def test_corpo_curto_passa_intacto():
+    assert erros.truncar_corpo('{"error":"x"}') == '{"error":"x"}'
+    assert erros.truncar_corpo("") == ""
+
+
+def test_explicar_http_usa_registry_com_corpo_longo_do_backend():
+    """Fim a fim: corpo grande -> título certo, âncora certa, código certo."""
+    corpo = json.dumps(
+        {"error": "turma_not_eligible", "message": "Voce esta em: " + ("z" * 600)}
+    )
+    texto = erros.explicar_http(403, erros.truncar_corpo(corpo), acao="Validar")
+    assert "turma_not_eligible" in texto
+    assert "o backend recusou a permissão." not in texto  # não caiu no genérico

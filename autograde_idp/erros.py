@@ -203,6 +203,29 @@ _ALIASES = {
 }
 
 
+# Corpo de erro que não é JSON (página HTML de proxy, stack trace) só serve
+# para o aluno copiar no pedido de ajuda — 500 chars bastam. Um corpo JSON,
+# porém, NÃO pode ser cortado: `message` hoje passa de 500 chars, e um JSON
+# truncado deixa de parsear, some com o código do erro e derruba a explicação
+# inteira para o caminho genérico ("o backend recusou a permissão"). Foi o que
+# aconteceu na prática assim que as mensagens acionáveis entraram no ar.
+LIMITE_CORPO_OPACO = 500
+LIMITE_CORPO_JSON = 8000
+
+
+def truncar_corpo(text: str) -> str:
+    """Limita o corpo de uma resposta de erro sem quebrar o JSON dentro dele."""
+    if not text:
+        return ""
+    if len(text) <= LIMITE_CORPO_OPACO:
+        return text
+    try:
+        json.loads(text)
+    except (ValueError, TypeError):
+        return text[:LIMITE_CORPO_OPACO]
+    return text[:LIMITE_CORPO_JSON]
+
+
 def parse_error_body(text: str) -> tuple[str, str]:
     """Extrai ``(codigo, message)`` do corpo JSON. Tolera corpo não-JSON."""
     if not text:
@@ -219,7 +242,16 @@ def parse_error_body(text: str) -> tuple[str, str]:
 def _wrap(text: str, indent: str) -> list[str]:
     out: list[str] = []
     for paragraph in text.splitlines() or [text]:
-        for chunk in textwrap.wrap(paragraph, width=WRAP_WIDTH) or [""]:
+        # URL é a única coisa aqui que o aluno precisa copiar inteira; quebrar
+        # `.../autograde-idp/blob/...` no hífen a torna inútil. Estourar a
+        # margem é preferível a entregar um link que não funciona.
+        chunks = textwrap.wrap(
+            paragraph,
+            width=WRAP_WIDTH,
+            break_on_hyphens=False,
+            break_long_words=False,
+        )
+        for chunk in chunks or [""]:
             out.append(f"{indent}{chunk}")
     return out
 

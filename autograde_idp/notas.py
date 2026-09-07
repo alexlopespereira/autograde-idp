@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional
 
 import requests
 
+from autograde_idp import erros
 from autograde_idp.auth import (
     AuthError,
     TokenAgeExceededError,
@@ -50,7 +51,7 @@ def _get(api: str, path: str, token: str) -> dict[str, Any]:
             return resp.json()
         except ValueError as exc:
             raise NotasError(f"resposta inválida de {path}: {exc}") from exc
-    text = (resp.text or "")[:500]
+    text = erros.truncar_corpo(resp.text or "")
     raise HttpError(resp.status_code, text)
 
 
