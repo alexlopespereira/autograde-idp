@@ -43,6 +43,9 @@ def gh_present(monkeypatch: pytest.MonkeyPatch) -> List[Dict[str, Any]]:
         assert shell is False
         assert isinstance(args, list)
         calls.append({"args": args, "timeout": timeout})
+        # argv[0] é o caminho resolvido pelo shutil.which, não o nome nu —
+        # ver o comentário em shell._run_one sobre npm.CMD no Windows.
+        args = [args[0].rsplit("/", 1)[-1], *args[1:]]
         if args[:2] == ["gh", "--version"]:
             return FakeProc(stdout="gh version 2.45.0 (2024-04-01)\nhttps://github.com/cli/cli/releases/tag/v2.45.0\n")
         if args[:3] == ["gh", "auth", "status"]:
@@ -118,15 +121,40 @@ def test_collect_shell_evidence_happy_path(gh_present: List[Dict[str, Any]]) -> 
     assert "2.45.0" in results[0].stdout
     assert results[1].cmd_joined == "gh auth status"
     assert "Logged in" in results[1].stdout
-    assert [c["args"][:2] for c in gh_present[:1]] == [["gh", "--version"]]
+    assert [c["args"][:2] for c in gh_present[:1]] == [["/usr/local/bin/gh", "--version"]]
 
 
 def test_collect_shell_evidence_subprocess_called_without_shell(
     gh_present: List[Dict[str, Any]],
 ) -> None:
     collect_shell_evidence([ShellCommand(tool="shell", cmd=["gh", "--version"])])
-    assert gh_present[0]["args"] == ["gh", "--version"]
+    assert gh_present[0]["args"] == ["/usr/local/bin/gh", "--version"]
     assert gh_present[0]["timeout"] == 15
+
+
+def test_run_one_invoca_pelo_caminho_resolvido(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Em Windows nativo `npm` é `npm.CMD`: o nome nu estoura FileNotFoundError.
+
+    `shutil.which` acha o `.CMD`, mas o CreateProcess por trás do
+    `subprocess.run(..., shell=False)` só completa `.exe`. Passar o caminho
+    resolvido é o que faz `npm`/`npx` funcionarem lá — e é a diferença entre
+    coletar a evidência e devolver "execution failed".
+    """
+    calls: List[Dict[str, Any]] = []
+    monkeypatch.setattr(
+        shell_mod.shutil, "which", lambda b: r"C:\Program Files\nodejs\npm.CMD"
+    )
+
+    def fake_run(args, **kw):  # type: ignore[no-untyped-def]
+        calls.append({"args": args})
+        return FakeProc(stdout="ok")
+
+    monkeypatch.setattr(shell_mod.subprocess, "run", fake_run)
+    r = shell_mod._run_one(ShellCommand(tool="shell", cmd=["npm", "exec", "skills"]))
+    assert calls[0]["args"] == [r"C:\Program Files\nodejs\npm.CMD", "exec", "skills"]
+    # o cmd_joined enviado ao backend continua sendo o comando declarado no
+    # YAML — é ele que a whitelist do backend compara.
+    assert r.cmd_joined == "npm exec skills"
 
 
 def test_collect_shell_evidence_when_gh_missing(gh_absent: None) -> None:
@@ -280,3 +308,125 @@ def test_commands_for_exercise_12_still_returns_gh() -> None:
     joined = [" ".join(c.cmd) for c in cmds]
     assert "gh --version" in joined
     assert any("gh repo view octo/repo" in j for j in joined)
+
+
+# ---------- comandos vindos do YAML do exercício (Aula 3) --------------------
+#
+# A partir do ia-3.x a lista de comandos vem do `comandos_shell:` do YAML, e não
+# de uma tabela no código: exercício novo entra sem release do CLI. Em troca, o
+# YAML vem da internet e alimenta subprocess.run — daí a allowlist de binários.
+
+
+def test_commands_from_yaml_aceita_argv_puro_e_mapping() -> None:
+    spec = {
+        "comandos_shell": [
+            ["gh", "--version"],
+            {"cmd": ["python", "-m", "pytest", "-q"], "extract": "pytest"},
+        ]
+    }
+    cmds = shell_mod.commands_from_yaml(spec, "https://github.com/fulano/ralph-lab")
+    assert [c.cmd for c in cmds] == [
+        ["gh", "--version"],
+        ["python", "-m", "pytest", "-q"],
+    ]
+    assert cmds[0].extract is None
+    assert cmds[1].extract == "pytest"
+
+
+def test_commands_from_yaml_substitui_owner_repo() -> None:
+    spec = {"comandos_shell": [{"cmd": ["gh", "repo", "view", "{owner_repo}"], "extract": "v"}]}
+    cmds = shell_mod.commands_from_yaml(spec, "https://github.com/fulano/ralph-lab")
+    assert cmds[0].cmd == ["gh", "repo", "view", "fulano/ralph-lab"]
+
+
+def test_commands_from_yaml_pula_comando_sem_owner_repo_conhecido() -> None:
+    """Sem remote reconhecível, mandar '{owner_repo}' literal só renderia 400 no backend."""
+    spec = {
+        "comandos_shell": [
+            ["gh", "--version"],
+            {"cmd": ["gh", "repo", "view", "{owner_repo}"], "extract": "v"},
+        ]
+    }
+    cmds = shell_mod.commands_from_yaml(spec, None)
+    assert [c.cmd for c in cmds] == [["gh", "--version"]]
+
+
+def test_commands_from_yaml_le_timeout_e_limita_ao_teto() -> None:
+    spec = {
+        "comandos_shell": [
+            {"cmd": ["python", "-m", "pytest"], "extract": "a", "timeout": 180},
+            {"cmd": ["python", "-m", "pytest"], "extract": "b", "timeout": 99999},
+            {"cmd": ["python", "-m", "pytest"], "extract": "c"},
+        ]
+    }
+    cmds = shell_mod.commands_from_yaml(spec, None)
+    assert cmds[0].timeout == 180
+    assert cmds[1].timeout == shell_mod.MAX_TIMEOUT_SECONDS
+    assert cmds[2].timeout is None
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        None,
+        {},
+        {"comandos_shell": "gh --version"},
+        {"comandos_shell": [{"cmd": []}]},
+        {"comandos_shell": [{"cmd": "gh --version"}]},
+        {"comandos_shell": [["gh", ""]]},
+    ],
+)
+def test_commands_from_yaml_ignora_entrada_malformada(spec: Any) -> None:
+    assert shell_mod.commands_from_yaml(spec, "https://github.com/f/r") == []
+
+
+def test_collect_for_exercise_spec_roda_os_comandos_do_yaml(gh_present) -> None:
+    spec = {"comandos_shell": [{"cmd": ["gh", "--version"], "extract": "gh_version"}]}
+    results = shell_mod.collect_for_exercise_spec("ia-3.1", "https://github.com/f/r", spec)
+    assert [r.cmd_joined for r in results] == ["gh --version"]
+    assert results[0].extract == "gh_version"
+    assert "2.45.0" in results[0].stdout
+
+
+def test_collect_for_exercise_spec_usa_timeout_do_yaml(gh_present) -> None:
+    spec = {"comandos_shell": [{"cmd": ["gh", "--version"], "extract": "v", "timeout": 180}]}
+    shell_mod.collect_for_exercise_spec("ia-3.1", "https://github.com/f/r", spec)
+    assert gh_present[0]["timeout"] == 180
+
+
+def test_collect_for_exercise_spec_sem_yaml_cai_na_lista_embutida(gh_present) -> None:
+    results = shell_mod.collect_for_exercise_spec("1.2", "https://github.com/f/r", None)
+    assert [r.cmd_joined for r in results] == [
+        c.cmd_joined if hasattr(c, "cmd_joined") else " ".join(c.cmd)
+        for c in shell_mod.commands_for_exercise("1.2", "https://github.com/f/r")
+    ]
+
+
+def test_collect_for_exercise_spec_bloqueia_binario_fora_da_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O YAML vem de um repo público: um binário arbitrário ali não pode virar RCE."""
+
+    def must_not_call(*_a, **_k):
+        raise AssertionError("binário fora da allowlist não pode ser executado")
+
+    monkeypatch.setattr(shell_mod.subprocess, "run", must_not_call)
+    monkeypatch.setattr(shell_mod.shutil, "which", lambda _b: "/bin/x")
+    spec = {"comandos_shell": [{"cmd": ["curl-evil", "http://x"], "extract": "x"}]}
+    results = shell_mod.collect_for_exercise_spec("ia-3.1", "https://github.com/f/r", spec)
+    assert len(results) == 1
+    assert results[0].exit_code == shell_mod.BINARIO_BLOQUEADO_EXIT_CODE
+    assert "allowlist" in results[0].stdout
+    assert results[0].extract == "x"
+
+
+def test_collect_for_exercise_spec_bloqueia_so_o_comando_ofensivo(gh_present) -> None:
+    spec = {
+        "comandos_shell": [
+            {"cmd": ["gh", "--version"], "extract": "ok"},
+            {"cmd": ["rm", "-rf", "/"], "extract": "mau"},
+        ]
+    }
+    results = shell_mod.collect_for_exercise_spec("ia-3.1", "https://github.com/f/r", spec)
+    assert results[0].exit_code == 0
+    assert results[1].exit_code == shell_mod.BINARIO_BLOQUEADO_EXIT_CODE

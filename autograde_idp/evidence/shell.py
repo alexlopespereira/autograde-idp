@@ -19,6 +19,8 @@ from autograde_idp.curso import CURSO_DEFAULT, qualify_exercise_id
 
 STDOUT_MAX_CHARS = 4096
 DEFAULT_TIMEOUT_SECONDS = 15
+# Teto para o `timeout:` que o YAML pede — o aluno espera na frente do terminal.
+MAX_TIMEOUT_SECONDS = 300
 GH_NOT_FOUND_MESSAGE = "gh not found in PATH"
 GH_NOT_FOUND_EXIT_CODE = -1
 
@@ -49,6 +51,9 @@ class ShellCommand:
     tool: str
     cmd: List[str]
     extract: Optional[str] = None
+    # Só o caminho YAML usa: `pytest` numa suíte real estoura os 15s que bastam
+    # para um `gh --version`. None = usa o timeout do chamador.
+    timeout: Optional[int] = None
 
 
 @dataclass
@@ -99,7 +104,8 @@ def _run_one(command: ShellCommand, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> C
         )
 
     binary = command.cmd[0]
-    if shutil.which(binary) is None:
+    resolvido = shutil.which(binary)
+    if resolvido is None:
         return CommandResult(
             tool=command.tool,
             cmd_joined=cmd_joined,
@@ -111,9 +117,15 @@ def _run_one(command: ShellCommand, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> C
             extract=command.extract,
         )
 
+    # Invocar pelo caminho resolvido, não pelo nome. Em Windows nativo o
+    # `npm` é `npm.CMD`, e `subprocess.run(["npm", ...], shell=False)` estoura
+    # FileNotFoundError porque CreateProcess só completa `.exe` — o
+    # `shutil.which` acima acha, a execução não. Com o caminho absoluto os dois
+    # concordam, e some a rejanela entre checar e executar.
+    argv = [resolvido, *command.cmd[1:]]
     try:
         proc = subprocess.run(
-            command.cmd,
+            argv,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -280,3 +292,119 @@ def collect_for_exercise(
     return collect_shell_evidence(
         commands_for_exercise(exercise_id, repo_url), timeout=timeout
     )
+
+
+# Binários que o CLI aceita executar a partir do YAML do exercício.
+#
+# O YAML vem da internet (raw.githubusercontent) e manda em `subprocess.run`
+# na máquina do aluno. HTTPS mais o repositório do curso já são a barreira
+# principal, mas uma allowlist fecha a porta para o cenário em que o repo de
+# exercícios é comprometido: dá para pedir `pytest`, não `rm`. Comando fora da
+# lista é ignorado com um CommandResult explicativo — nunca executado.
+YAML_BINARIOS_PERMITIDOS = frozenset(
+    {
+        "gh",
+        "git",
+        "python",
+        "python3",
+        "py",
+        "pytest",
+        "curl",
+        "node",
+        "npm",
+    }
+)
+BINARIO_BLOQUEADO_EXIT_CODE = -2
+
+
+def _bloqueado(cmd: List[str], extract: Optional[str]) -> CommandResult:
+    binario = cmd[0] if cmd else "(vazio)"
+    return CommandResult(
+        tool="shell",
+        cmd_joined=" ".join(cmd),
+        exit_code=BINARIO_BLOQUEADO_EXIT_CODE,
+        stdout=(
+            f"comando '{binario}' nao esta na allowlist do CLI e nao foi executado "
+            f"(permitidos: {', '.join(sorted(YAML_BINARIOS_PERMITIDOS))})"
+        ),
+        captured_at=_now_iso_utc(),
+        extract=extract,
+    )
+
+
+def commands_from_yaml(
+    spec: Optional[Dict[str, Any]], repo_url: Optional[str]
+) -> List[ShellCommand]:
+    """Lê a seção ``comandos_shell:`` do YAML do exercício.
+
+    Cada entrada é ``["gh", "--version"]`` ou
+    ``{cmd: [...], extract: "pytest"}``. O placeholder ``{owner_repo}`` é
+    substituído pelo ``owner/repo`` derivado do remote — o mesmo que o backend
+    faz ao montar a whitelist, senão a evidência é rejeitada na submissão.
+
+    Entrada malformada é ignorada; a validação dura é do backend.
+    """
+    if not isinstance(spec, dict):
+        return []
+    raw = spec.get("comandos_shell")
+    if not isinstance(raw, list):
+        return []
+    owner_repo = _parse_owner_repo(repo_url) if repo_url else None
+    out: List[ShellCommand] = []
+    for entry in raw:
+        timeout_override: Optional[int] = None
+        if isinstance(entry, dict):
+            cmd_raw = entry.get("cmd")
+            extract = str(entry.get("extract") or "").strip() or None
+            try:
+                bruto = int(entry.get("timeout", 0) or 0)
+            except (TypeError, ValueError):
+                bruto = 0
+            if bruto > 0:
+                timeout_override = min(bruto, MAX_TIMEOUT_SECONDS)
+        else:
+            cmd_raw = entry
+            extract = None
+        if not isinstance(cmd_raw, list) or not cmd_raw:
+            continue
+        tokens = [str(tok) for tok in cmd_raw]
+        if any(not tok for tok in tokens):
+            continue
+        if any("{owner_repo}" in tok for tok in tokens):
+            if not owner_repo:
+                # Sem remote reconhecível não dá para montar o comando; pular é
+                # melhor que mandar "{owner_repo}" literal e tomar 400.
+                continue
+            tokens = [tok.replace("{owner_repo}", owner_repo) for tok in tokens]
+        out.append(
+            ShellCommand(
+                tool="shell", cmd=tokens, extract=extract, timeout=timeout_override
+            )
+        )
+    return out
+
+
+def collect_for_exercise_spec(
+    exercise_id: str,
+    repo_url: Optional[str],
+    spec: Optional[Dict[str, Any]] = None,
+    *,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+) -> List[CommandResult]:
+    """Coleta a evidência shell do YAML; cai na lista hardcoded se não houver.
+
+    Comando com binário fora da allowlist vira resultado explicativo sem ser
+    executado — o aluno vê o motivo no boletim em vez de um critério mudo.
+    """
+    commands = commands_from_yaml(spec, repo_url)
+    if not commands:
+        return collect_shell_evidence(
+            commands_for_exercise(exercise_id, repo_url), timeout=timeout
+        )
+    out: List[CommandResult] = []
+    for command in commands:
+        if command.cmd and command.cmd[0] not in YAML_BINARIOS_PERMITIDOS:
+            out.append(_bloqueado(command.cmd, command.extract))
+            continue
+        out.append(_run_one(command, timeout=command.timeout or timeout))
+    return out

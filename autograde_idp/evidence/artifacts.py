@@ -229,3 +229,50 @@ def collect_for_exercise(
 ) -> List[ArtifactResult]:
     """Coleta artefatos aplicáveis ao ``exercise_id`` a partir de ``root``."""
     return collect_artifacts_evidence(specs_for_exercise(exercise_id), root)
+
+
+def specs_from_yaml(spec: Optional[Dict[str, Any]]) -> List[ArtifactSpec]:
+    """Lê a seção ``artefatos:`` do YAML do exercício.
+
+    Fonte única: o YAML manda, e um exercício novo entra sem release do CLI.
+    Entrada malformada é ignorada silenciosamente — um YAML quebrado não pode
+    impedir o aluno de submeter os critérios que não dependem de artefato; o
+    backend reprova o critério com mensagem clara.
+    """
+    if not isinstance(spec, dict):
+        return []
+    raw = spec.get("artefatos")
+    if not isinstance(raw, list):
+        return []
+    out: List[ArtifactSpec] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "").strip()
+        role = str(entry.get("role") or "").strip()
+        if not path or not role:
+            continue
+        out.append(
+            ArtifactSpec(
+                path=path,
+                role=role,
+                required=bool(entry.get("required", True)),
+            )
+        )
+    return out
+
+
+def collect_for_exercise_spec(
+    exercise_id: str,
+    root: Path,
+    spec: Optional[Dict[str, Any]] = None,
+) -> List[ArtifactResult]:
+    """Coleta artefatos do YAML; cai na lista hardcoded se o YAML não declarar.
+
+    O fallback existe pelos exercícios que já estão no ar (2.1, 3.1 de TD) e
+    pelo caso de a rede cair na hora de buscar o YAML.
+    """
+    specs = specs_from_yaml(spec)
+    if not specs:
+        specs = specs_for_exercise(exercise_id)
+    return collect_artifacts_evidence(specs, root)

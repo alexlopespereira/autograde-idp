@@ -33,9 +33,11 @@ from autograde_idp.auth import (
 from autograde_idp.evidence import artifacts as artifacts_mod
 from autograde_idp.evidence.shell import (
     GH_NOT_FOUND_MESSAGE,
-    collect_for_exercise,
+    collect_for_exercise_spec,
     commands_for_exercise,
+    commands_from_yaml,
 )
+from autograde_idp.exercicio_spec import ExercicioSpecError, fetch_exercise_spec
 
 IN_FLIGHT_FILENAME = "in-flight.json"
 DEFAULT_API_URL = "https://autograde-backend-1065810445001.southamerica-east1.run.app"
@@ -92,6 +94,24 @@ def detect_repo_url(cwd: Optional[Path] = None) -> str:
     if proc.returncode != 0 or not url:
         raise ValidarError("Não está num repo git com remote origin")
     return url
+
+
+def spec_requer_repositorio(spec: Optional[dict[str, Any]]) -> bool:
+    """Lê ``requer_repositorio:`` do YAML do exercício. Default ``True``.
+
+    Sem o YAML (rede fora) devolve ``True``, que é o comportamento de sempre —
+    e é inócuo: o backend baixa o mesmo YAML da mesma URL, então quando este
+    aqui não vem, aquele também não, e a validação morre no erro de rede de
+    qualquer jeito. Melhor repetir o status quo do que inventar um caminho novo
+    que só roda quando tudo já está quebrado.
+    """
+    if not isinstance(spec, dict):
+        return True
+    raw = spec.get("requer_repositorio")
+    # Espelha o backend: só booleano de verdade desliga a exigência. String
+    # `"false"` é erro de YAML, e aqui vira "exige" em vez de virar truthy
+    # silencioso — o backend rejeita o YAML e o aluno vê a mensagem de lá.
+    return raw if isinstance(raw, bool) else True
 
 
 def discover_exercise_id(cwd: Optional[Path] = None) -> str:
@@ -378,6 +398,7 @@ def _avisar_gh_ausente(
     exercise_id: str,
     shell_results: list[Any],
     print_fn: Callable[[str], None],
+    comandos: Optional[list[Any]] = None,
 ) -> None:
     """Avisa ANTES do boletim que `gh` não está instalado.
 
@@ -385,7 +406,10 @@ def _avisar_gh_ausente(
     técnica (`gh not found in PATH`) dentro de um critério, sem saber que o
     conserto é instalar uma ferramenta.
     """
-    if not any(c.cmd and c.cmd[0] == "gh" for c in commands_for_exercise(exercise_id, None)):
+    esperados = (
+        comandos if comandos is not None else commands_for_exercise(exercise_id, None)
+    )
+    if not any(c.cmd and c.cmd[0] == "gh" for c in esperados):
         return
     if not any(GH_NOT_FOUND_MESSAGE in (r.stdout or "") for r in shell_results):
         return
@@ -405,6 +429,34 @@ def _avisar_gh_ausente(
             )
         )
     )
+
+
+def carregar_spec(
+    exercise_id: str, print_fn: Callable[[str], None] = print
+) -> Optional[dict[str, Any]]:
+    """Baixa o YAML do exercício — a fonte da lista de artefatos e comandos.
+
+    Falha de rede não aborta a validação: os coletores caem na lista embutida
+    e o backend continua sendo a autoridade sobre a nota. O aviso existe para
+    o aluno entender por que um critério de artefato pode zerar.
+    """
+    try:
+        return fetch_exercise_spec(exercise_id)
+    except ExercicioSpecError as exc:
+        print_fn(
+            erros.dica(
+                "\n  ".join(
+                    [
+                        f"Não consegui baixar a especificação de {exercise_id}:",
+                        f"  {exc}",
+                        "Sigo com a lista embutida no CLI. Se algum critério de "
+                        "arquivo zerar sem motivo,",
+                        "atualize o CLI e rode de novo.",
+                    ]
+                )
+            )
+        )
+        return None
 
 
 def _load_fresh_bundle() -> TokenBundle:
@@ -430,12 +482,6 @@ def run_validar(
         def err_print(s: str) -> None:  # type: ignore[misc]
             print(s, file=sys.stderr)
 
-    try:
-        repo_url = detect_repo_url(cwd)
-    except ValidarError:
-        err_print(erros.explicar_sem_repo(exercise_id))
-        return 2
-
     if not exercise_id:
         try:
             exercise_id = discover_exercise_id(cwd)
@@ -443,7 +489,24 @@ def run_validar(
             err_print(f"erro: {exc}")
             return 2
 
-    conflict_ex = detect_repo_mismatch(exercise_id, repo_url)
+    # O spec vem ANTES da detecção do repo porque é ele que diz se este
+    # exercício exige um. Baixar o YAML não precisa de login — é raw GitHub.
+    spec = carregar_spec(exercise_id, print_fn)
+    requer_repo = spec_requer_repositorio(spec)
+
+    # Exercício com `requer_repositorio: false` nem tenta ler o remote: o
+    # diretório de trabalho basta, versionado ou não.
+    repo_url = ""
+    if requer_repo:
+        try:
+            repo_url = detect_repo_url(cwd)
+        except ValidarError:
+            err_print(erros.explicar_sem_repo(exercise_id))
+            return 2
+
+    conflict_ex = (
+        detect_repo_mismatch(exercise_id, repo_url) if repo_url else None
+    )
     if conflict_ex is not None:
         # O aviso antigo só dizia "certifique-se de estar no diretório certo",
         # sem dizer como se certificar nem que continuar pode estar correto.
@@ -503,11 +566,14 @@ def run_validar(
         return 2
 
     api = api_url()
-    shell_results = collect_for_exercise(exercise_id, repo_url)
+    shell_results = collect_for_exercise_spec(exercise_id, repo_url, spec)
     shell_evidence = [r.to_dict() for r in shell_results]
-    _avisar_gh_ausente(exercise_id, shell_results, print_fn)
-    artifact_results = artifacts_mod.collect_for_exercise(
-        exercise_id, cwd if cwd is not None else Path.cwd()
+    comandos_yaml = commands_from_yaml(spec, repo_url)
+    _avisar_gh_ausente(
+        exercise_id, shell_results, print_fn, comandos_yaml or None
+    )
+    artifact_results = artifacts_mod.collect_for_exercise_spec(
+        exercise_id, cwd if cwd is not None else Path.cwd(), spec
     )
     artifacts_evidence = [r.to_dict() for r in artifact_results]
     body = {
@@ -602,11 +668,14 @@ def run_validar(
     except InFlightLockedError:
         pass
 
-    # Memoriza repo usado por este exercício pra warning futuro.
-    try:
-        remember_repo(exercise_id, repo_url)
-    except OSError:
-        pass  # falha de disco não-bloqueante
+    # Memoriza repo usado por este exercício pra warning futuro. Exercício sem
+    # repo não tem o que memorizar — e gravar "" no mapa faria todo exercício
+    # repo-free colidir com o seguinte.
+    if repo_url:
+        try:
+            remember_repo(exercise_id, repo_url)
+        except OSError:
+            pass  # falha de disco não-bloqueante
 
     written = result.get("written", False)
     sid = result.get("submission_id", submission_uuid)

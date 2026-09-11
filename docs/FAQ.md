@@ -26,6 +26,7 @@ tutorial. Achou uma mensagem de erro? Procure por ela aqui (Ctrl+F).
 | `exercise_not_found` / `404` | [exercise_not_found](#exercise_not_found) |
 | `exercise_not_open_yet` | [exercise_not_open_yet](#exercise_not_open_yet) |
 | `invalid_repo_url` | [invalid_repo_url](#invalid_repo_url) |
+| `repo_url_required` | [repo_url_required](#repo_url_required) |
 | `gh not found in PATH` | [gh não encontrado](#gh_nao_encontrado) |
 | `invalid_shell_evidence` | [invalid_shell_evidence](#invalid_shell_evidence) |
 | `HTTP 429` | [limites de tentativa](#rate_limit) |
@@ -196,6 +197,34 @@ Se isso imprimir um caminho local, um repositório de outro serviço, ou nada,
 você está no diretório errado — ou clonou de um lugar que o autograder não
 consegue avaliar. O exercício precisa de um repositório hospedado no GitHub, no
 seu usuário.
+
+---
+
+<a id="repo_url_required"></a>
+
+## `repo_url_required` — "este exercício precisa de um repositório"
+
+O backend recebeu uma submissão sem `repo_url` para um exercício que exige
+repositório. Normalmente você rodou `autograde validar` de uma pasta que não é
+um repositório git, ou de uma que é mas não tem `origin`:
+
+```bash
+git config --get remote.origin.url   # tem que imprimir uma URL do GitHub
+```
+
+Se a pasta ainda não é um repositório:
+
+```bash
+git init
+git add . && git commit -m "primeira versão"
+gh repo create --source=. --public --push
+```
+
+**Nem todo exercício exige repositório.** Os de git (aula 1) exigem, porque o
+repositório *é* o conteúdo avaliado. Outros são corrigidos só pelos arquivos da
+sua máquina e por comandos rodados nela — nesses, o `autograde validar` funciona
+de qualquer pasta, versionada ou não. Quem decide é o YAML do exercício, no
+campo `requer_repositorio:` (default `true`).
 
 ---
 

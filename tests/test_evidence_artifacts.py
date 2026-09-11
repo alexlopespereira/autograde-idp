@@ -14,7 +14,9 @@ from autograde_idp.evidence.artifacts import (
     ArtifactSpec,
     collect_artifacts_evidence,
     collect_for_exercise,
+    collect_for_exercise_spec,
     specs_for_exercise,
+    specs_from_yaml,
 )
 
 ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\+00:00$")
@@ -271,3 +273,64 @@ def test_collect_for_exercise_unknown_id_returns_empty(
     eid: str, tmp_path: Path
 ) -> None:
     assert collect_for_exercise(eid, tmp_path) == []
+
+
+# ---------- artefatos declarados no YAML do exercício (Aula 3) ---------------
+
+
+def test_specs_from_yaml_le_role_path_required() -> None:
+    spec = {
+        "artefatos": [
+            {"role": "reflexao", "path": "RALPH.md"},
+            {"role": "extra", "path": "notas.md", "required": False},
+        ]
+    }
+    specs = specs_from_yaml(spec)
+    assert [(s.role, s.path, s.required) for s in specs] == [
+        ("reflexao", "RALPH.md", True),
+        ("extra", "notas.md", False),
+    ]
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        None,
+        {},
+        {"artefatos": "RALPH.md"},
+        {"artefatos": [["RALPH.md"]]},
+        {"artefatos": [{"path": "RALPH.md"}]},
+        {"artefatos": [{"role": "reflexao"}]},
+        {"artefatos": [{"role": "  ", "path": "RALPH.md"}]},
+    ],
+)
+def test_specs_from_yaml_ignora_entrada_malformada(spec) -> None:
+    """YAML quebrado não pode travar a submissão: o backend reprova o critério."""
+    assert specs_from_yaml(spec) == []
+
+
+def test_collect_for_exercise_spec_le_os_paths_do_yaml(tmp_path: Path) -> None:
+    (tmp_path / "data").mkdir()
+    (tmp_path / "RALPH.md").write_text("# Reflexao\n\nlinha um\n", encoding="utf-8")
+    (tmp_path / "data" / "pivot_receita.csv").write_text(
+        "regiao,2026-01\nSul,1\n", encoding="utf-8"
+    )
+    spec = {
+        "artefatos": [
+            {"role": "reflexao", "path": "RALPH.md"},
+            {"role": "pivot", "path": "data/pivot_receita.csv"},
+            {"role": "sumido", "path": "web/index.html"},
+        ]
+    }
+    results = collect_for_exercise_spec("ia-3.1", tmp_path, spec)
+    por_role = {r.role: r for r in results}
+    assert por_role["reflexao"].exists is True
+    assert "linha um" in por_role["reflexao"].content
+    assert por_role["pivot"].content.startswith("regiao,2026-01")
+    assert por_role["sumido"].exists is False
+
+
+def test_collect_for_exercise_spec_sem_yaml_cai_na_lista_embutida(tmp_path: Path) -> None:
+    esperado = [s.path for s in specs_for_exercise("2.1")]
+    results = collect_for_exercise_spec("2.1", tmp_path, None)
+    assert [r.path for r in results] == esperado
