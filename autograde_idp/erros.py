@@ -115,6 +115,20 @@ REGISTRY: dict[str, Explicacao] = {
         ),
         "exercise_not_found",
     ),
+    "repo_url_required": Explicacao(
+        "Este exercício precisa estar num repositório do GitHub, e a CLI não "
+        "encontrou um.",
+        (
+            "Rode `autograde validar` de dentro da pasta do repositório do "
+            "exercício — `git config --get remote.origin.url` tem que "
+            "devolver uma URL.",
+            "Se a pasta ainda não é um repositório: `git init`, depois "
+            "`gh repo create --source=. --public --push`.",
+            "Nem todo exercício exige repositório; quem exige diz isso no "
+            "próprio YAML (`requer_repositorio: true`, o default).",
+        ),
+        "repo_url_required",
+    ),
     "invalid_repo_url": Explicacao(
         "O `origin` deste diretório não aponta para um repo do GitHub.",
         (

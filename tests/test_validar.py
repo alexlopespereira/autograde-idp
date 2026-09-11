@@ -348,7 +348,9 @@ def test_run_validar_sends_shell_evidence_for_ex_1_2(
         captured_args["repo_url"] = repo_url
         return fake_results
 
-    monkeypatch.setattr(validar, "collect_for_exercise", fake_collect)
+    monkeypatch.setattr(validar, "collect_for_exercise_spec", fake_collect)
+    # Sem YAML disponivel o CLI cai na lista embutida — e o teste nao toca a rede.
+    monkeypatch.setattr(validar, "carregar_spec", lambda *_a, **_k: None)
 
     calls: list[tuple[str, dict]] = []
 
@@ -1075,3 +1077,168 @@ def test_run_validar_429_preserves_uuid_for_retry(
     # UUID preservado (não foi limpo) — diferente do 4xx que limpa
     persisted = json.loads(in_flight.read_text(encoding="utf-8"))
     assert "1.1" in persisted
+
+
+# ---------- carregar_spec: o YAML é fonte, não dependência dura -------------
+
+
+def test_carregar_spec_devolve_o_yaml_baixado(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        validar, "fetch_exercise_spec", lambda _id: {"artefatos": [{"role": "r", "path": "R.md"}]}
+    )
+    assert validar.carregar_spec("ia-3.1", lambda _m: None) == {
+        "artefatos": [{"role": "r", "path": "R.md"}]
+    }
+
+
+def test_carregar_spec_falha_de_rede_nao_aborta_e_avisa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sem rede o CLI cai na lista embutida: quem decide a nota é o backend."""
+
+    def explode(_id: str):
+        raise validar.ExercicioSpecError("404 no raw.githubusercontent")
+
+    monkeypatch.setattr(validar, "fetch_exercise_spec", explode)
+    linhas: list[str] = []
+    assert validar.carregar_spec("ia-3.1", linhas.append) is None
+    saida = "\n".join(linhas)
+    assert "ia-3.1" in saida
+    assert "lista embutida" in saida
+
+
+# ---------- requer_repositorio: o exercício diz se precisa de repo ----------
+# Default `true` (todo YAML já no ar segue exigindo). `false` faz o CLI nem
+# chamar o git: o aluno roda `autograde validar` de uma pasta qualquer, e o
+# `repo_url` vai vazio para o backend.
+
+
+def test_spec_requer_repositorio_default_true() -> None:
+    assert validar.spec_requer_repositorio({"exercicio": "ia-1.1"}) is True
+
+
+def test_spec_requer_repositorio_false() -> None:
+    assert validar.spec_requer_repositorio({"requer_repositorio": False}) is False
+
+
+def test_spec_requer_repositorio_sem_yaml_mantem_status_quo() -> None:
+    # Rede fora: repete o comportamento de sempre em vez de abrir um caminho
+    # novo que só roda quando tudo já está quebrado.
+    assert validar.spec_requer_repositorio(None) is True
+
+
+def test_spec_requer_repositorio_string_nao_desliga() -> None:
+    # `requer_repositorio: "false"` é string truthy; quem rejeita o YAML é o
+    # backend, e até lá o CLI não pode achar que o repo virou opcional.
+    assert validar.spec_requer_repositorio({"requer_repositorio": "false"}) is True
+
+
+def _fake_post_ok(calls: list[tuple[str, dict]]):
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append((url, json or {}))
+        if url.endswith("/grade-preview"):
+            return FakeResp(
+                200,
+                {
+                    "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                    "late": False,
+                    "dias_apos_recomendado": 0,
+                },
+            )
+        return FakeResp(
+            200,
+            {
+                "bulletin": {"criterios": [], "total": 0, "max_total": 100},
+                "submission_id": json["submission_uuid"],
+                "written": True,
+                "late": False,
+                "dias_apos_recomendado": 0,
+            },
+        )
+
+    return fake_post
+
+
+def test_run_validar_sem_repo_roda_fora_de_repositorio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_token: TokenBundle,
+) -> None:
+    pasta = tmp_path / "dissertacao"
+    pasta.mkdir()
+    (pasta / ".autograde-exercise").write_text("ia-3.2\n", encoding="utf-8")
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+    monkeypatch.setattr(
+        validar, "carregar_spec", lambda *_a, **_k: {"requer_repositorio": False}
+    )
+
+    def explode(*_a, **_k):
+        raise AssertionError("detect_repo_url nao deveria ser chamado")
+
+    monkeypatch.setattr(validar, "detect_repo_url", explode)
+    monkeypatch.setattr(validar, "collect_for_exercise_spec", lambda *_a, **_k: [])
+
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(validar.requests, "post", _fake_post_ok(calls))
+
+    rc = validar.run_validar(
+        exercise_id=None,
+        auto_submit=True,
+        cwd=pasta,
+        in_flight=tmp_path / "in-flight.json",
+    )
+    assert rc == 0
+    _, grade_body = calls[0]
+    assert grade_body["repo_url"] == ""
+    assert grade_body["exercicio"] == "ia-3.2"
+
+
+def test_run_validar_sem_repo_nao_memoriza_no_repo_map(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_token: TokenBundle,
+) -> None:
+    # Gravar "" no mapa faria todo exercício repo-free colidir com o seguinte
+    # e disparar o aviso de "você já submeteu outro exercício com este repo".
+    pasta = tmp_path / "trabalho"
+    pasta.mkdir()
+    monkeypatch.setenv("AUTOGRADE_API_URL", "http://test.local")
+    monkeypatch.setattr(
+        validar, "carregar_spec", lambda *_a, **_k: {"requer_repositorio": False}
+    )
+    monkeypatch.setattr(validar, "collect_for_exercise_spec", lambda *_a, **_k: [])
+    monkeypatch.setattr(validar.requests, "post", _fake_post_ok([]))
+
+    def explode(*_a, **_k):
+        raise AssertionError("remember_repo nao deveria ser chamado sem repositorio")
+
+    monkeypatch.setattr(validar, "remember_repo", explode)
+
+    rc = validar.run_validar(
+        exercise_id="ia-3.2",
+        auto_submit=True,
+        cwd=pasta,
+        in_flight=tmp_path / "in-flight.json",
+    )
+    assert rc == 0
+
+
+def test_run_validar_com_repo_ainda_exige_repositorio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_token: TokenBundle,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # O default não mudou: exercício de git fora de um repo continua parando
+    # com a mensagem que ensina o `cd`.
+    monkeypatch.setattr(
+        validar, "carregar_spec", lambda *_a, **_k: {"exercicio": "ia-1.3"}
+    )
+    rc = validar.run_validar(
+        exercise_id="ia-1.3",
+        auto_submit=True,
+        cwd=tmp_path,
+        in_flight=tmp_path / "in-flight.json",
+    )
+    assert rc == 2
+    assert "não está no diretório do repositório" in capsys.readouterr().err
