@@ -156,3 +156,35 @@ def test_explicar_http_usa_registry_com_corpo_longo_do_backend():
     texto = erros.explicar_http(403, erros.truncar_corpo(corpo), acao="Validar")
     assert "turma_not_eligible" in texto
     assert "o backend recusou a permissão." not in texto  # não caiu no genérico
+
+
+# --- ref (X-Correlation-Id) no rodape ------------------------------------
+# O backend sempre mandou o header; a CLI sempre o descartou. Resultado: o
+# aluno reportava "HTTP 403 / not_in_roster" e ligar aquilo a uma linha do
+# Cloud Logging virava adivinhacao por horario.
+
+
+def test_rodape_traz_a_ref_quando_o_backend_mandou():
+    out = erros.explicar_http(
+        403, '{"error":"not_in_roster"}', ref="6c2d6da129de4f34a7fb531e7152fa5a"
+    )
+    assert "ref: 6c2d6da129de4f34" in out
+    assert "copie a linha acima" in out
+
+
+def test_rodape_sem_ref_fica_como_antes():
+    """Backend antigo (sem o header) ou falha antes da resposta: nada de
+    `ref:` pendurado vazio no rodape."""
+    out = erros.explicar_http(403, '{"error":"not_in_roster"}')
+    assert "ref:" not in out
+    assert "copie a linha acima" not in out
+    assert "(código: not_in_roster · HTTP 403)" in out
+
+
+def test_ref_nao_quebra_o_resto_do_bloco():
+    out = erros.explicar_http(
+        403, '{"error":"turma_not_eligible"}', acao="Validar", ref="deadbeef" * 4
+    )
+    assert "Seu cadastro não está na turma deste exercício." in out
+    assert "O que fazer:" in out
+    assert "ref: deadbeefdeadbeef" in out

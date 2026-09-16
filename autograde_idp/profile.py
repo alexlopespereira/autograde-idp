@@ -40,7 +40,11 @@ def fetch_me_identity(api: str, id_token: str) -> dict[str, Any]:
     )
     if resp.status_code == 200:
         return resp.json()
-    raise HttpError(resp.status_code, erros.truncar_corpo(resp.text or ""))
+    raise HttpError(
+        resp.status_code,
+        erros.truncar_corpo(resp.text or ""),
+        resp.headers.get("X-Correlation-Id", ""),
+    )
 
 
 def post_me_profile(
@@ -55,7 +59,11 @@ def post_me_profile(
     )
     if resp.status_code == 200:
         return resp.json()
-    raise HttpError(resp.status_code, erros.truncar_corpo(resp.text or ""))
+    raise HttpError(
+        resp.status_code,
+        erros.truncar_corpo(resp.text or ""),
+        resp.headers.get("X-Correlation-Id", ""),
+    )
 
 
 def prompt_github_username(
@@ -134,7 +142,9 @@ def run_perfil(
         err_print(erros.explicar_rede(exc, acao="Ler seu cadastro"))
         return 3
     except HttpError as exc:
-        err_print(erros.explicar_http(exc.status, exc.text, acao="Ler seu cadastro"))
+        err_print(erros.explicar_http(
+                exc.status, exc.text, acao="Ler seu cadastro", ref=exc.ref
+            ))
         return 2 if exc.status in (401, 403) else 3
 
     turmas = identity.get("turmas") or [identity.get("turma", "?")]
@@ -182,7 +192,9 @@ def run_perfil(
         err_print(erros.explicar_rede(exc, acao="Salvar seu cadastro"))
         return 3
     except HttpError as exc:
-        err_print(erros.explicar_http(exc.status, exc.text, acao="Salvar seu cadastro"))
+        err_print(erros.explicar_http(
+                exc.status, exc.text, acao="Salvar seu cadastro", ref=exc.ref
+            ))
         return 3
     print_fn(f"Pronto: github={gh}")
     return 0

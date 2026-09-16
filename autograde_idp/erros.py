@@ -124,8 +124,9 @@ REGISTRY: dict[str, Explicacao] = {
             "devolver uma URL.",
             "Se a pasta ainda não é um repositório: `git init`, depois "
             "`gh repo create --source=. --public --push`.",
-            "Nem todo exercício exige repositório; quem exige diz isso no "
-            "próprio YAML (`requer_repositorio: true`, o default).",
+            "A maioria dos exercícios NÃO exige repositório — o default é não "
+            "precisar versionar. Quem exige é exceção e declara "
+            "`requer_repositorio: true` no próprio YAML.",
         ),
         "repo_url_required",
     ),
@@ -275,12 +276,19 @@ def explicar_http(
     body_text: str,
     *,
     acao: str = "A operação",
+    ref: str = "",
 ) -> str:
     """Bloco legível para uma resposta HTTP de erro do backend.
 
     ``acao`` é o que o aluno estava tentando fazer ("Validar o exercício",
     "Buscar suas notas") — vira a primeira linha, para o erro fazer sentido
     sem o aluno precisar reconstruir o contexto.
+
+    ``ref`` é o ``X-Correlation-Id`` da resposta, no rodapé. Não serve para
+    o aluno: serve para o pedido de ajuda dele. Sem isso, "deu 403
+    not_in_roster" é tudo o que chega ao professor, e casar aquilo com uma
+    linha do Cloud Logging vira adivinhação por horário. Fica no rodapé
+    junto do código e do status — o bloco que o aluno já copia inteiro.
     """
     codigo, message = parse_error_body(body_text)
     exp = REGISTRY.get(_ALIASES.get(codigo, codigo))
@@ -312,7 +320,22 @@ def explicar_http(
         lines.append(f"  FAQ: {FAQ_URL}#{anchor}")
 
     lines.append("")
-    lines.append(f"  (código: {codigo or 'sem código'} · HTTP {status})")
+    rodape = f"  (código: {codigo or 'sem código'} · HTTP {status}"
+    if ref:
+        # Metade do hex já identifica a linha sem ambiguidade e cabe na
+        # margem; a consulta no log usa match parcial mesmo assim.
+        rodape += f" · ref: {ref[:16]}"
+    lines.append(rodape + ")")
+    if ref:
+        lines.append("")
+        lines.extend(
+            _wrap(
+                "Se for pedir ajuda ao professor, copie a linha acima "
+                "inteira — a `ref` permite achar exatamente esta "
+                "requisição no log do servidor.",
+                "  ",
+            )
+        )
     return "\n".join(lines)
 
 

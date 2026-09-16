@@ -65,11 +65,19 @@ class InFlightLockedError(ValidarError):
 
 
 class HttpError(ValidarError):
-    """Resposta HTTP não-200 do backend."""
+    """Resposta HTTP nao-200 do backend.
 
-    def __init__(self, status: int, text: str) -> None:
+    `ref` e o `X-Correlation-Id` que o backend gera por requisicao. Ele
+    sempre existiu na resposta e a CLI sempre o jogou fora — entao o aluno
+    reportava "HTTP 403 / not_in_roster" e nao havia como ligar aquilo a uma
+    linha de log. Guardar aqui e imprimir no rodape do erro fecha esse elo:
+    o aluno cola a ref, o professor consulta direto pelo correlation_id.
+    """
+
+    def __init__(self, status: int, text: str, ref: str = "") -> None:
         self.status = status
         self.text = text
+        self.ref = ref
         super().__init__(f"HTTP {status}: {text}")
 
 
@@ -97,21 +105,25 @@ def detect_repo_url(cwd: Optional[Path] = None) -> str:
 
 
 def spec_requer_repositorio(spec: Optional[dict[str, Any]]) -> bool:
-    """Lê ``requer_repositorio:`` do YAML do exercício. Default ``True``.
+    """Lê ``requer_repositorio:`` do YAML do exercício. Default ``False``.
 
-    Sem o YAML (rede fora) devolve ``True``, que é o comportamento de sempre —
-    e é inócuo: o backend baixa o mesmo YAML da mesma URL, então quando este
-    aqui não vem, aquele também não, e a validação morre no erro de rede de
-    qualquer jeito. Melhor repetir o status quo do que inventar um caminho novo
-    que só roda quando tudo já está quebrado.
+    A regra é que o aluno não precisa versionar a solução; exigir repositório é
+    a exceção, e a exceção está declarada no YAML.
+
+    Sem o YAML (rede fora) devolve ``False``, que é o mesmo default do parser do
+    backend — e é inócuo: o backend baixa o mesmo YAML da mesma URL, então
+    quando este aqui não vem, aquele também não. Se ainda assim o exercício
+    exigir repo, quem cobra é o backend, com `repo_url_required`, que diz o que
+    fazer; melhor isso do que a CLI parar com "você não está num repositório"
+    no caso que hoje é a maioria.
     """
     if not isinstance(spec, dict):
-        return True
+        return False
     raw = spec.get("requer_repositorio")
-    # Espelha o backend: só booleano de verdade desliga a exigência. String
-    # `"false"` é erro de YAML, e aqui vira "exige" em vez de virar truthy
+    # Espelha o backend: só booleano de verdade liga a exigência. String
+    # `"true"` é erro de YAML, e aqui vira "não exige" em vez de virar truthy
     # silencioso — o backend rejeita o YAML e o aluno vê a mensagem de lá.
-    return raw if isinstance(raw, bool) else True
+    return raw if isinstance(raw, bool) else False
 
 
 def discover_exercise_id(cwd: Optional[Path] = None) -> str:
@@ -383,7 +395,11 @@ def _post(api: str, path: str, token: str, body: dict[str, Any]) -> dict[str, An
             return resp.json()
         except ValueError as exc:
             raise ValidarError(f"resposta inválida de {path}: {exc}") from exc
-    raise HttpError(resp.status_code, erros.truncar_corpo(resp.text or ""))
+    raise HttpError(
+        resp.status_code,
+        erros.truncar_corpo(resp.text or ""),
+        resp.headers.get("X-Correlation-Id", ""),
+    )
 
 
 def grade_preview_call(api: str, token: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -588,7 +604,9 @@ def run_validar(
         err_print(erros.explicar_rede(exc, acao="Validar o exercício"))
         return 3
     except HttpError as exc:
-        err_print(erros.explicar_http(exc.status, exc.text, acao="Validar o exercício"))
+        err_print(erros.explicar_http(
+                exc.status, exc.text, acao="Validar o exercício", ref=exc.ref
+            ))
         return 3
     except ValidarError as exc:
         err_print(f"erro: {exc}")
@@ -614,7 +632,9 @@ def run_validar(
             return 3
         except HttpError as exc:
             err_print(
-                erros.explicar_http(exc.status, exc.text, acao="Validar o exercício")
+                erros.explicar_http(
+                exc.status, exc.text, acao="Validar o exercício", ref=exc.ref
+            )
             )
             return 3
 
@@ -652,7 +672,9 @@ def run_validar(
                 clear_uuid(path, exercise_id)
             except InFlightLockedError:
                 pass
-        err_print(erros.explicar_http(exc.status, exc.text, acao="Submeter a nota"))
+        err_print(erros.explicar_http(
+                exc.status, exc.text, acao="Submeter a nota", ref=exc.ref
+            ))
         if exc.status == 429 or exc.status >= 500:
             err_print(
                 f"  Sua tentativa foi preservada em {path} — rodar "

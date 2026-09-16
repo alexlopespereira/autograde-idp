@@ -188,7 +188,9 @@ def cmd_whoami(_args: argparse.Namespace) -> int:
         return 3
     except NotasHttpError as exc:
         print(
-            erros.explicar_http(exc.status, exc.text, acao="Identificar você"),
+            erros.explicar_http(
+                exc.status, exc.text, acao="Identificar você", ref=exc.ref
+            ),
             file=sys.stderr,
         )
         return 2 if exc.status in (401, 403) else 3

@@ -34,10 +34,19 @@ def with_fresh_token(monkeypatch: pytest.MonkeyPatch, fake_bundle: TokenBundle):
 
 
 class FakeResp:
-    def __init__(self, status: int, body: dict) -> None:
+    def __init__(
+        self, status: int, body: dict, headers: dict | None = None
+    ) -> None:
         self.status_code = status
         self._body = body
         self.text = json.dumps(body)
+        # `headers` existe em toda `requests.Response` real. O dublê passou
+        # anos sem ela porque nada lia — até a CLI começar a propagar o
+        # `X-Correlation-Id` para o rodapé do erro. Default preenchido para
+        # que os testes exerçam o caminho com ref, que é o que vai a produção.
+        self.headers = headers if headers is not None else {
+            "X-Correlation-Id": "abc123def4567890feedfacecafebeef"
+        }
 
     def json(self) -> dict:
         return self._body

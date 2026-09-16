@@ -220,11 +220,12 @@ git add . && git commit -m "primeira versão"
 gh repo create --source=. --public --push
 ```
 
-**Nem todo exercício exige repositório.** Os de git (aula 1) exigem, porque o
-repositório *é* o conteúdo avaliado. Outros são corrigidos só pelos arquivos da
-sua máquina e por comandos rodados nela — nesses, o `autograde validar` funciona
-de qualquer pasta, versionada ou não. Quem decide é o YAML do exercício, no
-campo `requer_repositorio:` (default `true`).
+**A regra é não precisar de repositório.** Quase todo exercício é corrigido
+pelos arquivos da sua máquina e por comandos rodados nela — nesses, o
+`autograde validar` funciona de qualquer pasta, versionada ou não, e **você não
+ganha nem perde ponto por ter versionado**. A exceção são os exercícios de git
+(aula 1), em que o repositório *é* o conteúdo avaliado: eles declaram
+`requer_repositorio: true` no próprio YAML. O default do campo é `false`.
 
 ---
 

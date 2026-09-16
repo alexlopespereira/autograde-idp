@@ -30,9 +30,19 @@ class NotasError(Exception):
 
 
 class HttpError(NotasError):
-    def __init__(self, status: int, text: str) -> None:
+    """Resposta HTTP nao-200 do backend.
+
+    `ref` e o `X-Correlation-Id` que o backend gera por requisicao. Ele
+    sempre existiu na resposta e a CLI sempre o jogou fora — entao o aluno
+    reportava "HTTP 403 / not_in_roster" e nao havia como ligar aquilo a uma
+    linha de log. Guardar aqui e imprimir no rodape do erro fecha esse elo:
+    o aluno cola a ref, o professor consulta direto pelo correlation_id.
+    """
+
+    def __init__(self, status: int, text: str, ref: str = "") -> None:
         self.status = status
         self.text = text
+        self.ref = ref
         super().__init__(f"HTTP {status}: {text}")
 
 
@@ -52,7 +62,7 @@ def _get(api: str, path: str, token: str) -> dict[str, Any]:
         except ValueError as exc:
             raise NotasError(f"resposta inválida de {path}: {exc}") from exc
     text = erros.truncar_corpo(resp.text or "")
-    raise HttpError(resp.status_code, text)
+    raise HttpError(resp.status_code, text, resp.headers.get("X-Correlation-Id", ""))
 
 
 def me_grades_call(api: str, token: str) -> dict[str, Any]:
@@ -144,7 +154,9 @@ def run_notas(
     except HttpError as exc:
         from autograde_idp import erros
 
-        err_print(erros.explicar_http(exc.status, exc.text, acao="Buscar suas notas"))
+        err_print(erros.explicar_http(
+                exc.status, exc.text, acao="Buscar suas notas", ref=exc.ref
+            ))
         if exc.status >= 500:
             return 3
         return 2 if exc.status == 401 else 1

@@ -53,6 +53,18 @@ def _isolate_repo_map(
 
 
 @pytest.fixture
+def spec_exige_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercício de git: o YAML declara `requer_repositorio: true`.
+
+    Sem isto o CLI cai no default (não exige repo) e nem chama o git — o que é
+    justamente o comportamento certo para todo o resto dos exercícios.
+    """
+    monkeypatch.setattr(
+        validar, "carregar_spec", lambda *_a, **_k: {"requer_repositorio": True}
+    )
+
+
+@pytest.fixture
 def fake_token(monkeypatch: pytest.MonkeyPatch) -> TokenBundle:
     bundle = TokenBundle(
         access_token="at-test",
@@ -68,10 +80,19 @@ def fake_token(monkeypatch: pytest.MonkeyPatch) -> TokenBundle:
 
 
 class FakeResp:
-    def __init__(self, status: int, body: dict) -> None:
+    def __init__(
+        self, status: int, body: dict, headers: dict | None = None
+    ) -> None:
         self.status_code = status
         self._body = body
         self.text = json.dumps(body)
+        # `headers` existe em toda `requests.Response` real. O dublê passou
+        # anos sem ela porque nada lia — até a CLI começar a propagar o
+        # `X-Correlation-Id` para o rodapé do erro. Default preenchido para
+        # que os testes exerçam o caminho com ref, que é o que vai a produção.
+        self.headers = headers if headers is not None else {
+            "X-Correlation-Id": "abc123def4567890feedfacecafebeef"
+        }
 
     def json(self) -> dict:
         return self._body
@@ -240,6 +261,7 @@ def test_run_validar_happy_path_auto_submit(
     tmp_path: Path,
     git_repo: Path,
     fake_token: TokenBundle,
+    spec_exige_repo: None,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     in_flight = tmp_path / "in-flight.json"
@@ -314,6 +336,7 @@ def test_run_validar_sends_shell_evidence_for_ex_1_2(
     tmp_path: Path,
     git_repo: Path,
     fake_token: TokenBundle,
+    spec_exige_repo: None,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """AC5: exercise 1.2 dispara collect_for_exercise e envia shell_evidence
@@ -349,8 +372,11 @@ def test_run_validar_sends_shell_evidence_for_ex_1_2(
         return fake_results
 
     monkeypatch.setattr(validar, "collect_for_exercise_spec", fake_collect)
-    # Sem YAML disponivel o CLI cai na lista embutida — e o teste nao toca a rede.
-    monkeypatch.setattr(validar, "carregar_spec", lambda *_a, **_k: None)
+    # O teste nao toca a rede: o spec vem daqui. 1.2 e exercicio de git, entao
+    # declara a excecao — sem ela o CLI cai no default e nem le o remote.
+    monkeypatch.setattr(
+        validar, "carregar_spec", lambda *_a, **_k: {"requer_repositorio": True}
+    )
 
     calls: list[tuple[str, dict]] = []
 
@@ -528,6 +554,7 @@ def test_run_validar_exits_2_when_not_a_git_repo(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     fake_token: TokenBundle,
+    spec_exige_repo: None,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     in_flight = tmp_path / "in-flight.json"
@@ -968,6 +995,7 @@ def test_run_validar_warns_and_prompts_on_repo_mismatch(
     tmp_path: Path,
     git_repo: Path,
     fake_token: TokenBundle,
+    spec_exige_repo: None,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Repo do git_repo já marcado pra 1.3 → validar 1.4 dispara warning."""
@@ -1108,29 +1136,35 @@ def test_carregar_spec_falha_de_rede_nao_aborta_e_avisa(
 
 
 # ---------- requer_repositorio: o exercício diz se precisa de repo ----------
-# Default `true` (todo YAML já no ar segue exigindo). `false` faz o CLI nem
-# chamar o git: o aluno roda `autograde validar` de uma pasta qualquer, e o
-# `repo_url` vai vazio para o backend.
+# Default `false`: o aluno não versiona a solução e não ganha ponto por
+# versionar, então o CLI nem chama o git — ele roda `autograde validar` de uma
+# pasta qualquer e o `repo_url` vai vazio para o backend. `true` é a exceção,
+# declarada no YAML, e é o que faz o CLI ler o `remote.origin.url`.
 
 
-def test_spec_requer_repositorio_default_true() -> None:
-    assert validar.spec_requer_repositorio({"exercicio": "ia-1.1"}) is True
+def test_spec_requer_repositorio_default_false() -> None:
+    assert validar.spec_requer_repositorio({"exercicio": "ia-5.1"}) is False
+
+
+def test_spec_requer_repositorio_true_declarado() -> None:
+    assert validar.spec_requer_repositorio({"requer_repositorio": True}) is True
 
 
 def test_spec_requer_repositorio_false() -> None:
     assert validar.spec_requer_repositorio({"requer_repositorio": False}) is False
 
 
-def test_spec_requer_repositorio_sem_yaml_mantem_status_quo() -> None:
-    # Rede fora: repete o comportamento de sempre em vez de abrir um caminho
-    # novo que só roda quando tudo já está quebrado.
-    assert validar.spec_requer_repositorio(None) is True
+def test_spec_requer_repositorio_sem_yaml_usa_o_default() -> None:
+    # Rede fora: cai no mesmo default do parser do backend. Se o exercício
+    # exigir repo mesmo assim, quem cobra é o backend, com `repo_url_required`
+    # — melhor do que a CLI barrar o caso que hoje é a maioria.
+    assert validar.spec_requer_repositorio(None) is False
 
 
-def test_spec_requer_repositorio_string_nao_desliga() -> None:
-    # `requer_repositorio: "false"` é string truthy; quem rejeita o YAML é o
-    # backend, e até lá o CLI não pode achar que o repo virou opcional.
-    assert validar.spec_requer_repositorio({"requer_repositorio": "false"}) is True
+def test_spec_requer_repositorio_string_nao_liga() -> None:
+    # `requer_repositorio: "true"` é string truthy; quem rejeita o YAML é o
+    # backend, e até lá o CLI não pode achar que o repo virou obrigatório.
+    assert validar.spec_requer_repositorio({"requer_repositorio": "true"}) is False
 
 
 def _fake_post_ok(calls: list[tuple[str, dict]]):
@@ -1229,10 +1263,12 @@ def test_run_validar_com_repo_ainda_exige_repositorio(
     fake_token: TokenBundle,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # O default não mudou: exercício de git fora de um repo continua parando
-    # com a mensagem que ensina o `cd`.
+    # Exercício que declara a exceção, rodado fora de um repo, continua
+    # parando com a mensagem que ensina o `cd`.
     monkeypatch.setattr(
-        validar, "carregar_spec", lambda *_a, **_k: {"exercicio": "ia-1.3"}
+        validar,
+        "carregar_spec",
+        lambda *_a, **_k: {"exercicio": "ia-1.3", "requer_repositorio": True},
     )
     rc = validar.run_validar(
         exercise_id="ia-1.3",

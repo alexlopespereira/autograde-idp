@@ -49,10 +49,19 @@ def test_github_username_regex(username: str, expected: bool) -> None:
 
 
 class FakeResp:
-    def __init__(self, status: int, body: dict[str, Any]) -> None:
+    def __init__(
+        self, status: int, body: dict[str, Any], headers: dict | None = None
+    ) -> None:
         self.status_code = status
         self._body = body
         self.text = json.dumps(body)
+        # `headers` existe em toda `requests.Response` real. O dublê passou
+        # anos sem ela porque nada lia — até a CLI começar a propagar o
+        # `X-Correlation-Id` para o rodapé do erro. Default preenchido para
+        # que os testes exerçam o caminho com ref, que é o que vai a produção.
+        self.headers = headers if headers is not None else {
+            "X-Correlation-Id": "abc123def4567890feedfacecafebeef"
+        }
 
     def json(self) -> dict[str, Any]:
         return self._body
@@ -265,3 +274,39 @@ def test_module_exports_public_api() -> None:
         "is_interactive",
     ):
         assert hasattr(profile, name), f"profile missing public symbol: {name}"
+
+
+# --- propagacao da ref: header HTTP -> excecao -> tela do aluno ----------
+
+
+def test_http_error_carrega_o_correlation_id_da_resposta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        profile.requests,
+        "get",
+        lambda url, headers=None, timeout=None: FakeResp(
+            403,
+            {"error": "not_in_roster"},
+            headers={"X-Correlation-Id": "6c2d6da129de4f34a7fb531e7152fa5a"},
+        ),
+    )
+    with pytest.raises(HttpError) as exc:
+        profile.fetch_me_identity("http://test.local", "tok")
+    assert exc.value.ref == "6c2d6da129de4f34a7fb531e7152fa5a"
+
+
+def test_backend_sem_o_header_nao_quebra_a_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI nova contra backend antigo: `ref` vazio, nao AttributeError."""
+    monkeypatch.setattr(
+        profile.requests,
+        "get",
+        lambda url, headers=None, timeout=None: FakeResp(
+            403, {"error": "not_in_roster"}, headers={}
+        ),
+    )
+    with pytest.raises(HttpError) as exc:
+        profile.fetch_me_identity("http://test.local", "tok")
+    assert exc.value.ref == ""
