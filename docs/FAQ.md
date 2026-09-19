@@ -106,8 +106,18 @@ autograde whoami          # com qual email estou logado?
 autograde login           # refazer, escolhendo a conta certa
 ```
 
-Se o email está certo e ainda assim aparece o erro, você ainda não foi
-incluído no roster — fale com o professor.
+Se o email está certo e ainda assim aparece o erro, é um dos dois casos abaixo
+— nos dois o conserto é do professor, não seu:
+
+- **Você está cadastrado com a OUTRA conta.** Acontece quando a secretaria
+  passa o email institucional e você usa o pessoal no Google (ou o contrário).
+  A coluna `email` do roster aceita **mais de uma conta**, separadas por `;`
+  (ex.: `nome.sobrenome@orgao.gov.br;seunome@gmail.com`), então não é preciso
+  escolher uma: peça ao professor para acrescentar a conta que o `autograde
+  whoami` mostra na sua linha. Suas notas anteriores continuam valendo — o
+  backend casa as duas contas.
+- **Você ainda não foi incluído no roster.** Mande ao professor o email exato
+  que o `autograde whoami` mostrou.
 
 ---
 

@@ -85,7 +85,10 @@ REGISTRY: dict[str, Explicacao] = {
             "Rode `autograde whoami` e veja com qual email você está logado.",
             "Causa mais comum: login com gmail pessoal no lugar do email "
             "institucional. Rode `autograde login` e escolha a conta certa.",
-            "Se o email está certo, peça ao professor para incluí-lo no roster.",
+            "Se o email está certo, peça ao professor para acrescentar ESTA "
+            "conta na sua linha do roster: a coluna `email` aceita mais de uma "
+            "(a institucional E a pessoal), separadas por `;`, então não é "
+            "preciso escolher uma.",
         ),
         "not_in_roster",
     ),
